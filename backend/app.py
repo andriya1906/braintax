@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
 import math
@@ -6,85 +6,30 @@ import math
 app = Flask(__name__)
 CORS(app)
 
-CO2_PER_MINUTE = 1.5
-
-co2_points = 45
-session_active = False
-active_task_id = None
-
-user_profile = {
-    "name": "User",
-    "avatar_type": "calm"
-}
-
-group_scores = {
-    "Group Math": 140,
-    "Group OS": 120,
-    "Group DSA": 110
-}
-
-user_group_contributions = {
-    "Group Math": 0,
-    "Group OS": 0,
-    "Group DSA": 0
-}
-
-assigned_tasks = [
-    {
-        "id": 1,
-        "title": "Math Problem Set",
-        "created_by": "Team Leader",
-        "category": "Math",
-        "group_name": "Group Math",
-        "scheduled_start": "2026-03-26T14:00",
-        "scheduled_end": "2026-03-26T16:00",
-        "status": "Pending",
-        "started": False,
-        "completed": False,
-        "expired": False,
-        "study_started_at": None,
-        "study_seconds_total": 0,
-        "points_earned": 0
-    },
-    {
-        "id": 2,
-        "title": "OS Quiz Prep",
-        "created_by": "Team Leader",
-        "category": "OS",
-        "group_name": "Group OS",
-        "scheduled_start": "2026-03-26T18:00",
-        "scheduled_end": "2026-03-26T19:30",
-        "status": "Pending",
-        "started": False,
-        "completed": False,
-        "expired": False,
-        "study_started_at": None,
-        "study_seconds_total": 0,
-        "points_earned": 0
-    },
-    {
-        "id": 3,
-        "title": "DSA Practice Sprint",
-        "created_by": "Team Leader",
-        "category": "DSA",
-        "group_name": "Group DSA",
-        "scheduled_start": "2026-03-26T20:00",
-        "scheduled_end": "2026-03-26T21:00",
-        "status": "Pending",
-        "started": False,
-        "completed": False,
-        "expired": False,
-        "study_started_at": None,
-        "study_seconds_total": 0,
-        "points_earned": 0
-    }
+# =========================================================
+# DEMO USERS
+# =========================================================
+users = [
+    {"id": 1, "name": "Andriya", "avatar_style": "focused", "co2_points": 120},
+    {"id": 2, "name": "Aisha", "avatar_style": "calm", "co2_points": 90},
+    {"id": 3, "name": "Rohan", "avatar_style": "energetic", "co2_points": 110},
 ]
+
+current_user_id = 1
+
+# =========================================================
+# SOLO SESSION / RESTRICTED APPS STATE
+# =========================================================
+solo_session = {
+    "active": False,
+    "started_at": None
+}
 
 restricted_apps = [
     {
         "id": 1,
         "name": "Instagram",
-        "icon": "📷",
+        "icon": "📸",
         "limit_minutes": 20,
         "used_seconds": 0,
         "is_open": False,
@@ -110,537 +55,900 @@ restricted_apps = [
     }
 ]
 
-doom_scroll_total_seconds = 0
+# =========================================================
+# GROUPS / CHATS / TASKS / SESSIONS
+# =========================================================
+groups = []
+group_messages = {}
+group_tasks = []
+task_assignments = []
+group_sessions = []
+session_proofs = []
 
+group_id_counter = 1
+task_id_counter = 1
+session_id_counter = 1
+proof_id_counter = 1
 
-def now_local():
+# =========================================================
+# HELPERS
+# =========================================================
+def now_dt():
     return datetime.now()
 
-
-def parse_dt(dt_str):
-    return datetime.fromisoformat(dt_str)
-
-
-def round_half_up(value):
-    return int(math.floor(value + 0.5))
-
-
-def clamp_non_negative(value):
-    return max(0, round_half_up(value))
-
-
-def round_points(value):
-    return round_half_up(value)
-
-
-def get_avatar_state():
-    global co2_points
-
-    if co2_points >= 70:
-        return "happy", "bright"
-    elif co2_points >= 30:
-        return "neutral", "normal"
-    return "sad", "dim"
-
-
-def seconds_to_points(seconds_value):
-    if seconds_value <= 0:
-        return 0
-    minutes = seconds_value / 60
-    return round_points(minutes * CO2_PER_MINUTE)
-
-
-def get_current_window_task():
-    current_time = now_local()
-
-    for task in assigned_tasks:
-        if task["completed"] or task["expired"]:
-            continue
-
-        start_dt = parse_dt(task["scheduled_start"])
-        end_dt = parse_dt(task["scheduled_end"])
-
-        if start_dt <= current_time <= end_dt:
-            return task
-
-    return None
-
-
-def sync_task_statuses():
-    global co2_points, active_task_id, session_active
-
-    current_time = now_local()
-
-    for task in assigned_tasks:
-        if task["completed"]:
-            continue
-
-        end_dt = parse_dt(task["scheduled_end"])
-
-        if current_time > end_dt and not task["expired"]:
-            if task["started"] and task["study_started_at"] is not None:
-                effective_end = end_dt
-                elapsed_seconds = int((effective_end - task["study_started_at"]).total_seconds())
-
-                if elapsed_seconds > 0:
-                    task["study_seconds_total"] += elapsed_seconds
-                    points = seconds_to_points(elapsed_seconds)
-                    task["points_earned"] += points
-
-                    co2_points += points
-
-                    group_name = task["group_name"]
-                    group_scores[group_name] += points
-                    user_group_contributions[group_name] += points
-
-                task["study_started_at"] = None
-
-            if task["started"]:
-                active_task_id = None
-                session_active = False
-                task["started"] = False
-
-            task["expired"] = True
-            task["status"] = "Expired"
-
-
-def get_live_app_used_seconds(app_item):
-    used_seconds = app_item["used_seconds"]
-
-    if app_item["is_open"] and app_item["opened_at"] is not None:
-        used_seconds += int((now_local() - app_item["opened_at"]).total_seconds())
-
-    limit_seconds = app_item["limit_minutes"] * 60
-    return min(used_seconds, limit_seconds)
-
-
-def serialize_app(app_item):
-    used_seconds = get_live_app_used_seconds(app_item)
-    limit_seconds = app_item["limit_minutes"] * 60
-    remaining_seconds = max(0, limit_seconds - used_seconds)
-
-    return {
-        "id": app_item["id"],
-        "name": app_item["name"],
-        "icon": app_item["icon"],
-        "limit_minutes": app_item["limit_minutes"],
-        "used_seconds": used_seconds,
-        "remaining_seconds": remaining_seconds,
-        "is_open": app_item["is_open"]
-    }
-
-
-def serialize_task(task):
-    current_time = now_local()
-    start_dt = parse_dt(task["scheduled_start"])
-    end_dt = parse_dt(task["scheduled_end"])
-
-    live_study_seconds = task["study_seconds_total"]
-    live_points = task["points_earned"]
-
-    if task["started"] and task["study_started_at"] is not None:
-        effective_end = min(current_time, end_dt)
-        elapsed_seconds = int((effective_end - task["study_started_at"]).total_seconds())
-        if elapsed_seconds > 0:
-            live_study_seconds += elapsed_seconds
-            live_points = task["points_earned"] + seconds_to_points(elapsed_seconds)
-
-    return {
-        "id": task["id"],
-        "title": task["title"],
-        "created_by": task["created_by"],
-        "category": task["category"],
-        "group_name": task["group_name"],
-        "scheduled_start": task["scheduled_start"],
-        "scheduled_end": task["scheduled_end"],
-        "status": task["status"],
-        "started": task["started"],
-        "completed": task["completed"],
-        "expired": task["expired"],
-        "study_seconds_total": live_study_seconds,
-        "points_earned": live_points,
-        "window_active": start_dt <= current_time <= end_dt,
-        "user_group_contribution": user_group_contributions[task["group_name"]]
-    }
-
-
-@app.route("/")
-def home():
-    return "Backend is running!"
-
-
-@app.route("/avatar-data")
-def avatar_data():
-    sync_task_statuses()
-    mood, room_state = get_avatar_state()
-
-    return jsonify({
-        "name": user_profile["name"],
-        "avatar_type": user_profile["avatar_type"],
-        "co2_points": co2_points,
-        "mood": mood,
-        "room_state": room_state,
-        "session_active": session_active,
-        "doom_scroll_total_seconds": doom_scroll_total_seconds
-    })
-
-
-@app.route("/profile")
-def profile():
-    return jsonify(user_profile)
-
-
-@app.route("/update-profile", methods=["POST"])
-def update_profile():
-    data = request.get_json()
-
-    if "name" in data and data["name"].strip():
-        user_profile["name"] = data["name"].strip()
-
-    if "avatar_type" in data:
-        user_profile["avatar_type"] = data["avatar_type"]
-
-    return jsonify({
-        "message": "Profile updated successfully",
-        "profile": user_profile
-    })
-
-
-@app.route("/leaderboard")
-def leaderboard():
-    leaderboard_data = [
-        {"name": "Aisha", "points": 120},
-        {"name": "Rahul", "points": 95},
-        {"name": user_profile["name"], "points": co2_points},
-        {"name": "Neha", "points": 60}
-    ]
-
-    leaderboard_data.sort(key=lambda x: x["points"], reverse=True)
-    return jsonify(leaderboard_data)
-
-
-@app.route("/group-leaderboard")
-def group_leaderboard():
-    data = []
-
-    for group_name, score in group_scores.items():
-        data.append({
-            "group_name": group_name,
-            "points": score,
-            "your_contribution": user_group_contributions[group_name]
-        })
-
-    data.sort(key=lambda x: x["points"], reverse=True)
-    return jsonify(data)
-
-
-@app.route("/assigned-tasks")
-def get_assigned_tasks():
-    sync_task_statuses()
-
-    return jsonify({
-        "tasks": [serialize_task(task) for task in assigned_tasks],
-        "active_task_id": active_task_id
-    })
-
-
-@app.route("/update-task-window", methods=["POST"])
-def update_task_window():
-    data = request.get_json()
-    task_id = data.get("task_id")
-    scheduled_start = data.get("scheduled_start")
-    scheduled_end = data.get("scheduled_end")
-
-    if not scheduled_start or not scheduled_end:
-        return jsonify({"message": "Start and end time are required"}), 400
-
-    start_dt = parse_dt(scheduled_start)
-    end_dt = parse_dt(scheduled_end)
-
-    if end_dt <= start_dt:
-        return jsonify({"message": "End time must be after start time"}), 400
-
-    for task in assigned_tasks:
-        if task["id"] == task_id:
-            task["scheduled_start"] = scheduled_start
-            task["scheduled_end"] = scheduled_end
-
-            if not task["completed"]:
-                task["expired"] = False
-                task["status"] = "Pending"
-                task["started"] = False
-                task["study_started_at"] = None
-
-            return jsonify({
-                "message": f'{task["title"]} window updated successfully'
-            })
-
-    return jsonify({"message": "Task not found"}), 404
-
-
-@app.route("/start-task", methods=["POST"])
-def start_task():
-    global active_task_id, session_active
-
-    sync_task_statuses()
-
-    data = request.get_json()
-    task_id = data.get("task_id")
-
-    if active_task_id is not None:
-        return jsonify({"message": "Another task is already in progress"}), 400
+def now_str():
+    return datetime.now().isoformat()
+
+def find_user(user_id):
+    return next((u for u in users if u["id"] == user_id), None)
+
+def get_current_user():
+    return find_user(current_user_id)
+
+def find_group(group_id):
+    return next((g for g in groups if g["id"] == group_id), None)
+
+def find_task(task_id):
+    return next((t for t in group_tasks if t["id"] == task_id), None)
+
+def find_restricted_app(app_id):
+    return next((a for a in restricted_apps if a["id"] == app_id), None)
+
+def generate_join_code(group_name, group_id):
+    cleaned = "".join(ch for ch in group_name.upper() if ch.isalnum())
+    prefix = cleaned[:3] if cleaned else "GRP"
+    return f"{prefix}{100 + group_id}"
+
+def user_in_group(user_id, group):
+    return any(member["user_id"] == user_id for member in group["members"])
+
+def get_user_groups(user_id):
+    return [group for group in groups if user_in_group(user_id, group)]
+
+def round_up_half(value):
+    return math.ceil(value)
+
+def study_points_from_minutes(minutes):
+    return round_up_half(minutes * 1.5)
+
+def doom_points_from_minutes(minutes):
+    return round_up_half(minutes * 1.5)
+
+def get_avatar_mood(points):
+    if points >= 70:
+        return "happy"
+    elif points >= 30:
+        return "neutral"
+    return "sad"
+
+def get_room_state(points):
+    if points >= 70:
+        return "bright"
+    elif points >= 30:
+        return "normal"
+    return "dim"
+
+def get_total_doom_scroll_seconds():
+    total = 0
+    for app_item in restricted_apps:
+        total += get_app_used_seconds(app_item)
+    return total
+
+def get_app_used_seconds(app_item):
+    used = app_item["used_seconds"]
+    if app_item["is_open"] and app_item["opened_at"]:
+        opened_dt = datetime.fromisoformat(app_item["opened_at"])
+        used += int((now_dt() - opened_dt).total_seconds())
+    return used
+
+def close_open_apps_and_apply_penalty():
+    user = get_current_user()
+    total_penalty_points = 0
 
     for app_item in restricted_apps:
-        if app_item["is_open"]:
-            return jsonify({"message": "Close the restricted app before starting a study session"}), 400
-
-    current_time = now_local()
-
-    for task in assigned_tasks:
-        if task["id"] == task_id:
-            if task["completed"]:
-                return jsonify({"message": "This task is already completed"}), 400
-
-            if task["expired"]:
-                return jsonify({"message": "This task window has already expired"}), 400
-
-            start_dt = parse_dt(task["scheduled_start"])
-            end_dt = parse_dt(task["scheduled_end"])
-
-            if current_time < start_dt:
-                return jsonify({"message": "This task window has not started yet"}), 400
-
-            if current_time > end_dt:
-                task["expired"] = True
-                task["status"] = "Expired"
-                return jsonify({"message": "This task window has already ended"}), 400
-
-            task["started"] = True
-            task["study_started_at"] = current_time
-            task["status"] = "In Progress"
-            active_task_id = task_id
-            session_active = True
-
-            return jsonify({
-                "message": f'{task["title"]} started successfully'
-            })
-
-    return jsonify({"message": "Task not found"}), 404
-
-
-@app.route("/end-task", methods=["POST"])
-def end_task():
-    global active_task_id, session_active, co2_points
-
-    sync_task_statuses()
-
-    data = request.get_json()
-    task_id = data.get("task_id")
-
-    if active_task_id != task_id:
-        return jsonify({"message": "This task is not currently active"}), 400
-
-    current_time = now_local()
-
-    for task in assigned_tasks:
-        if task["id"] == task_id:
-            if not task["started"] or task["study_started_at"] is None:
-                return jsonify({"message": "This task has not started properly"}), 400
-
-            end_dt = parse_dt(task["scheduled_end"])
-            effective_end = min(current_time, end_dt)
-            elapsed_seconds = int((effective_end - task["study_started_at"]).total_seconds())
-
+        if app_item["is_open"] and app_item["opened_at"]:
+            opened_dt = datetime.fromisoformat(app_item["opened_at"])
+            elapsed_seconds = int((now_dt() - opened_dt).total_seconds())
             if elapsed_seconds < 0:
                 elapsed_seconds = 0
 
-            task["study_seconds_total"] += elapsed_seconds
-            earned_points = seconds_to_points(elapsed_seconds)
-            task["points_earned"] += earned_points
+            app_item["used_seconds"] += elapsed_seconds
+            app_item["is_open"] = False
+            app_item["opened_at"] = None
 
-            co2_points += earned_points
-            group_name = task["group_name"]
-            group_scores[group_name] += earned_points
-            user_group_contributions[group_name] += earned_points
+            penalty_minutes = elapsed_seconds / 60.0
+            penalty_points = doom_points_from_minutes(penalty_minutes)
+            total_penalty_points += penalty_points
 
-            task["started"] = False
-            task["study_started_at"] = None
-            active_task_id = None
-            session_active = False
+    if total_penalty_points > 0 and user:
+        user["co2_points"] -= total_penalty_points
+        apply_group_penalty_if_active_window(user["id"], total_penalty_points)
 
-            if current_time <= end_dt:
-                task["completed"] = True
-                task["status"] = "Completed"
-                message = f'{task["title"]} completed within the time window'
-            else:
-                task["expired"] = True
-                task["status"] = "Expired"
-                message = f'{task["title"]} expired after the time window'
+    return total_penalty_points
 
-            return jsonify({
-                "message": message,
-                "earned_points": earned_points,
-                "co2_points": co2_points,
-                "group_points": group_scores[group_name],
-                "your_group_contribution": user_group_contributions[group_name]
-            })
+def apply_group_penalty_if_active_window(user_id, penalty_points):
+    user_groups = get_user_groups(user_id)
 
-    return jsonify({"message": "Task not found"}), 404
+    for group in user_groups:
+        has_active_task = False
+        for task in group_tasks:
+            if task["group_id"] == group["id"] and task_window_status(task) == "Active":
+                has_active_task = True
+                break
 
+        if has_active_task:
+            group["total_points"] = max(0, group["total_points"] - penalty_points)
+
+def task_window_status(task):
+    now = datetime.now()
+    start = datetime.fromisoformat(task["scheduled_start"])
+    end = datetime.fromisoformat(task["scheduled_end"])
+
+    if now < start:
+        return "Pending"
+    elif start <= now <= end:
+        return "Active"
+    else:
+        return "Expired"
+
+def get_active_group_session(group_id, task_id=None):
+    for session in group_sessions:
+        if session["group_id"] == group_id and session["status"] == "active":
+            if task_id is None or session["task_id"] == task_id:
+                return session
+    return None
+
+# =========================================================
+# CURRENT USER SUPPORT
+# =========================================================
+@app.route("/current-user", methods=["GET"])
+def get_current_user_route():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Current user not found"}), 404
+    return jsonify(user)
+
+@app.route("/set-current-user", methods=["POST"])
+def set_current_user():
+    global current_user_id
+
+    data = request.json
+    user_id = data.get("user_id")
+
+    user = find_user(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    current_user_id = user_id
+    return jsonify({"message": f"Current user set to {user['name']}", "user": user})
+
+# =========================================================
+# AVATAR / PROFILE / SOLO SESSION
+# =========================================================
+@app.route("/avatar-data", methods=["GET"])
+def avatar_data():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Current user not found"}), 404
+
+    return jsonify({
+        "name": user["name"],
+        "co2_points": user["co2_points"],
+        "mood": get_avatar_mood(user["co2_points"]),
+        "room_state": get_room_state(user["co2_points"]),
+        "avatar_type": user["avatar_style"],
+        "session_active": solo_session["active"],
+        "doom_scroll_total_seconds": get_total_doom_scroll_seconds()
+    })
+
+@app.route("/profile", methods=["GET"])
+def profile():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Current user not found"}), 404
+
+    return jsonify({
+        "name": user["name"],
+        "avatar_type": user["avatar_style"]
+    })
+
+@app.route("/update-profile", methods=["POST"])
+def update_profile():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Current user not found"}), 404
+
+    data = request.json
+    name = data.get("name", "").strip()
+    avatar_type = data.get("avatar_type", "").strip().lower()
+
+    if not name:
+        return jsonify({"message": "Name cannot be empty"}), 400
+
+    if avatar_type not in ["calm", "energetic", "focused"]:
+        return jsonify({"message": "Invalid avatar style"}), 400
+
+    user["name"] = name
+    user["avatar_style"] = avatar_type
+
+    return jsonify({"message": "Profile updated successfully"})
 
 @app.route("/start-session", methods=["POST"])
 def start_session():
-    global session_active
+    if solo_session["active"]:
+        return jsonify({"message": "A solo session is already active"}), 400
 
-    for app_item in restricted_apps:
-        if app_item["is_open"]:
-            return jsonify({"message": "Close the restricted app before starting a study session"}), 400
+    close_open_apps_and_apply_penalty()
 
-    session_active = True
+    solo_session["active"] = True
+    solo_session["started_at"] = now_str()
+
     return jsonify({"message": "Solo study session started"})
-
 
 @app.route("/end-session", methods=["POST"])
 def end_session():
-    global session_active
+    user = get_current_user()
+    if not user:
+        return jsonify({"message": "Current user not found"}), 404
 
-    if session_active:
-        session_active = False
-        return jsonify({"message": "Solo study session ended"})
+    if not solo_session["active"] or not solo_session["started_at"]:
+        return jsonify({"message": "No solo session is active"}), 400
 
-    return jsonify({"message": "No active solo study session"})
+    started_at = datetime.fromisoformat(solo_session["started_at"])
+    elapsed_seconds = int((now_dt() - started_at).total_seconds())
+    if elapsed_seconds < 0:
+        elapsed_seconds = 0
 
+    elapsed_minutes = elapsed_seconds / 60.0
+    earned_points = study_points_from_minutes(elapsed_minutes)
+    user["co2_points"] += earned_points
 
-@app.route("/restricted-apps")
-def get_restricted_apps():
-    sync_task_statuses()
+    solo_session["active"] = False
+    solo_session["started_at"] = None
 
     return jsonify({
-        "apps": [serialize_app(app_item) for app_item in restricted_apps],
-        "session_active": session_active,
-        "doom_scroll_total_seconds": doom_scroll_total_seconds
+        "message": "Solo study session ended",
+        "earned_points": earned_points
     })
 
+# =========================================================
+# RESTRICTED APPS
+# =========================================================
+@app.route("/restricted-apps", methods=["GET"])
+def get_restricted_apps():
+    apps_payload = []
+
+    for app_item in restricted_apps:
+        used_seconds = get_app_used_seconds(app_item)
+        limit_seconds = app_item["limit_minutes"] * 60
+        remaining_seconds = max(0, limit_seconds - used_seconds)
+
+        if used_seconds >= limit_seconds and app_item["is_open"]:
+            app_item["is_open"] = False
+            app_item["opened_at"] = None
+
+        apps_payload.append({
+            "id": app_item["id"],
+            "name": app_item["name"],
+            "icon": app_item["icon"],
+            "limit_minutes": app_item["limit_minutes"],
+            "used_seconds": min(used_seconds, limit_seconds),
+            "remaining_seconds": remaining_seconds,
+            "is_open": app_item["is_open"]
+        })
+
+    return jsonify({
+        "session_active": solo_session["active"],
+        "doom_scroll_total_seconds": get_total_doom_scroll_seconds(),
+        "apps": apps_payload
+    })
 
 @app.route("/set-app-limit", methods=["POST"])
 def set_app_limit():
-    data = request.get_json()
+    data = request.json
     app_id = data.get("app_id")
     limit_minutes = data.get("limit_minutes")
 
-    if limit_minutes is None:
-        return jsonify({"message": "Time limit is required"}), 400
+    app_item = find_restricted_app(app_id)
+    if not app_item:
+        return jsonify({"message": "App not found"}), 404
 
     try:
         limit_minutes = int(limit_minutes)
-    except ValueError:
-        return jsonify({"message": "Time limit must be a number"}), 400
+    except:
+        return jsonify({"message": "Limit must be a number"}), 400
 
     if limit_minutes < 0:
-        return jsonify({"message": "Time limit cannot be negative"}), 400
+        return jsonify({"message": "Limit cannot be negative"}), 400
 
-    for app_item in restricted_apps:
-        if app_item["id"] == app_id:
-            used_minutes = math.ceil(app_item["used_seconds"] / 60) if app_item["used_seconds"] > 0 else 0
-            if limit_minutes < used_minutes:
-                return jsonify({"message": "New limit cannot be less than already used time"}), 400
-
-            app_item["limit_minutes"] = limit_minutes
-            return jsonify({
-                "message": f'{app_item["name"]} limit updated to {limit_minutes} minutes'
-            })
-
-    return jsonify({"message": "App not found"}), 404
-
+    app_item["limit_minutes"] = limit_minutes
+    return jsonify({"message": f"{app_item['name']} limit updated successfully"})
 
 @app.route("/toggle-restricted-app", methods=["POST"])
 def toggle_restricted_app():
-    global doom_scroll_total_seconds, co2_points
+    user = get_current_user()
+    if not user:
+        return jsonify({"message": "Current user not found"}), 404
 
-    sync_task_statuses()
-
-    data = request.get_json()
+    data = request.json
     app_id = data.get("app_id")
 
-    selected_app = None
-    for app_item in restricted_apps:
-        if app_item["id"] == app_id:
-            selected_app = app_item
-            break
-
-    if selected_app is None:
+    app_item = find_restricted_app(app_id)
+    if not app_item:
         return jsonify({"message": "App not found"}), 404
 
-    if not selected_app["is_open"]:
-        if session_active:
-            return jsonify({
-                "message": "Restricted apps cannot be opened during an active study session"
-            }), 400
+    if app_item["is_open"]:
+        opened_dt = datetime.fromisoformat(app_item["opened_at"])
+        elapsed_seconds = int((now_dt() - opened_dt).total_seconds())
+        if elapsed_seconds < 0:
+            elapsed_seconds = 0
 
-        for app_item in restricted_apps:
-            if app_item["is_open"]:
-                return jsonify({
-                    "message": "Close the currently open restricted app first"
-                }), 400
+        app_item["used_seconds"] += elapsed_seconds
+        app_item["is_open"] = False
+        app_item["opened_at"] = None
 
-        used_seconds = selected_app["used_seconds"]
-        limit_seconds = selected_app["limit_minutes"] * 60
-
-        if used_seconds >= limit_seconds:
-            return jsonify({
-                "message": f'{selected_app["name"]} has no remaining allowed time'
-            }), 400
-
-        selected_app["is_open"] = True
-        selected_app["opened_at"] = now_local()
+        penalty_minutes = elapsed_seconds / 60.0
+        penalty_points = doom_points_from_minutes(penalty_minutes)
+        user["co2_points"] -= penalty_points
+        apply_group_penalty_if_active_window(user["id"], penalty_points)
 
         return jsonify({
-            "message": f'{selected_app["name"]} opened successfully',
-            "app": serialize_app(selected_app)
+            "message": f"{app_item['name']} closed. Penalty applied.",
+            "penalty_points": penalty_points
         })
 
-    elapsed_seconds = 0
-    if selected_app["opened_at"] is not None:
-        elapsed_seconds = int((now_local() - selected_app["opened_at"]).total_seconds())
+    if solo_session["active"]:
+        return jsonify({"message": "Cannot open restricted apps during an active study session"}), 400
 
-    max_remaining = (selected_app["limit_minutes"] * 60) - selected_app["used_seconds"]
-    elapsed_seconds = max(0, min(elapsed_seconds, max_remaining))
+    used_seconds = get_app_used_seconds(app_item)
+    limit_seconds = app_item["limit_minutes"] * 60
+    if used_seconds >= limit_seconds:
+        return jsonify({"message": f"{app_item['name']} limit exhausted"}), 400
 
-    selected_app["used_seconds"] += elapsed_seconds
-    selected_app["is_open"] = False
-    selected_app["opened_at"] = None
-
-    doom_scroll_total_seconds += elapsed_seconds
-    penalty_points = seconds_to_points(elapsed_seconds)
-
-    co2_points = clamp_non_negative(co2_points - penalty_points)
-
-    current_task_window = get_current_window_task()
-    group_penalty_applied = False
-    affected_group = None
-
-    if current_task_window is not None:
-        affected_group = current_task_window["group_name"]
-        group_scores[affected_group] = clamp_non_negative(group_scores[affected_group] - penalty_points)
-        user_group_contributions[affected_group] = clamp_non_negative(
-            user_group_contributions[affected_group] - penalty_points
-        )
-        group_penalty_applied = True
-
-    message = f'{selected_app["name"]} closed. Doom scroll penalty applied: -{penalty_points} CO₂ points.'
-
-    if group_penalty_applied:
-        message += f' Group penalty also applied to {affected_group}.'
+    app_item["is_open"] = True
+    app_item["opened_at"] = now_str()
 
     return jsonify({
-        "message": message,
-        "penalty_points": penalty_points,
-        "co2_points": co2_points,
-        "group_penalty_applied": group_penalty_applied,
-        "affected_group": affected_group,
-        "app": serialize_app(selected_app)
+        "message": f"{app_item['name']} opened successfully",
+        "penalty_points": 0
     })
 
+# =========================================================
+# BASIC USER ROUTES
+# =========================================================
+@app.route("/users", methods=["GET"])
+def get_users():
+    return jsonify(users)
 
+@app.route("/users/<int:user_id>", methods=["GET"])
+def get_user(user_id):
+    user = find_user(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    return jsonify(user)
+
+# =========================================================
+# GROUP ROUTES
+# =========================================================
+@app.route("/groups", methods=["GET"])
+def get_groups():
+    return jsonify(groups)
+
+@app.route("/groups/my/<int:user_id>", methods=["GET"])
+def get_my_groups(user_id):
+    my_groups = get_user_groups(user_id)
+    return jsonify(my_groups)
+
+@app.route("/groups/create", methods=["POST"])
+def create_group():
+    global group_id_counter
+
+    data = request.json
+    name = data.get("name", "").strip()
+    leader_id = data.get("leader_id")
+
+    if not name:
+        return jsonify({"error": "Group name is required"}), 400
+
+    leader = find_user(leader_id)
+    if not leader:
+        return jsonify({"error": "Leader user not found"}), 404
+
+    new_group = {
+        "id": group_id_counter,
+        "name": name,
+        "leader_id": leader_id,
+        "join_code": generate_join_code(name, group_id_counter),
+        "members": [
+            {
+                "user_id": leader_id,
+                "name": leader["name"],
+                "role": "leader"
+            }
+        ],
+        "total_points": 0,
+        "created_at": now_str()
+    }
+
+    groups.append(new_group)
+    group_messages[group_id_counter] = []
+
+    group_id_counter += 1
+    return jsonify({
+        "message": "Group created successfully",
+        "group": new_group
+    })
+
+@app.route("/groups/join", methods=["POST"])
+def join_group():
+    data = request.json
+    join_code = data.get("join_code", "").strip().upper()
+    user_id = data.get("user_id")
+
+    user = find_user(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    group = next((g for g in groups if g["join_code"] == join_code), None)
+    if not group:
+        return jsonify({"error": "Invalid join code"}), 404
+
+    if user_in_group(user_id, group):
+        return jsonify({"error": "User already in this group"}), 400
+
+    group["members"].append({
+        "user_id": user_id,
+        "name": user["name"],
+        "role": "member"
+    })
+
+    return jsonify({
+        "message": f"{user['name']} joined {group['name']}",
+        "group": group
+    })
+
+@app.route("/groups/<int:group_id>", methods=["GET"])
+def get_group(group_id):
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+    return jsonify(group)
+
+@app.route("/groups/<int:group_id>/leave", methods=["POST"])
+def leave_group(group_id):
+    data = request.json
+    user_id = data.get("user_id")
+
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    if not user_in_group(user_id, group):
+        return jsonify({"error": "User is not a member of this group"}), 400
+
+    if group["leader_id"] == user_id:
+        if len(group["members"]) > 1:
+            return jsonify({
+                "error": "Leader cannot leave while other members exist"
+            }), 400
+        else:
+            groups.remove(group)
+            group_messages.pop(group_id, None)
+            return jsonify({"message": "Group deleted because leader left"})
+
+    group["members"] = [m for m in group["members"] if m["user_id"] != user_id]
+
+    return jsonify({"message": "Left group successfully", "group": group})
+
+@app.route("/groups/<int:group_id>/members", methods=["GET"])
+def get_group_members(group_id):
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+    return jsonify(group["members"])
+
+# =========================================================
+# GROUP CHAT
+# =========================================================
+@app.route("/groups/<int:group_id>/messages", methods=["GET"])
+def get_group_messages(group_id):
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+    return jsonify(group_messages.get(group_id, []))
+
+@app.route("/groups/<int:group_id>/messages", methods=["POST"])
+def send_group_message(group_id):
+    data = request.json
+    user_id = data.get("user_id")
+    text = data.get("text", "").strip()
+
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    if not text:
+        return jsonify({"error": "Message cannot be empty"}), 400
+
+    if not user_in_group(user_id, group):
+        return jsonify({"error": "Only group members can send messages"}), 403
+
+    user = find_user(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    msg = {
+        "sender_id": user_id,
+        "sender_name": user["name"],
+        "text": text,
+        "timestamp": now_str()
+    }
+
+    group_messages[group_id].append(msg)
+    return jsonify({"message": "Message sent", "chat_message": msg})
+
+# =========================================================
+# GROUP TASKS
+# =========================================================
+@app.route("/groups/<int:group_id>/tasks", methods=["GET"])
+def get_group_tasks(group_id):
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    tasks = [t for t in group_tasks if t["group_id"] == group_id]
+    result = []
+
+    for task in tasks:
+        result.append({
+            **task,
+            "window_status": task_window_status(task)
+        })
+
+    return jsonify(result)
+
+@app.route("/groups/<int:group_id>/tasks/create", methods=["POST"])
+def create_group_task(group_id):
+    global task_id_counter
+
+    data = request.json
+
+    creator_id = data.get("creator_id")
+    title = data.get("title", "").strip()
+    category = data.get("category", "").strip()
+    description = data.get("description", "").strip()
+    scheduled_start = data.get("scheduled_start", "").strip()
+    scheduled_end = data.get("scheduled_end", "").strip()
+
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    if creator_id != group["leader_id"]:
+        return jsonify({"error": "Only the group leader can create tasks"}), 403
+
+    if not title or not scheduled_start or not scheduled_end:
+        return jsonify({"error": "Title, start and end are required"}), 400
+
+    try:
+        start_dt = datetime.fromisoformat(scheduled_start)
+        end_dt = datetime.fromisoformat(scheduled_end)
+        if end_dt <= start_dt:
+            return jsonify({"error": "End time must be after start time"}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid datetime format"}), 400
+
+    creator = find_user(creator_id)
+
+    new_task = {
+        "id": task_id_counter,
+        "group_id": group_id,
+        "group_name": group["name"],
+        "title": title,
+        "category": category,
+        "description": description,
+        "created_by": creator_id,
+        "created_by_name": creator["name"] if creator else "Unknown",
+        "scheduled_start": scheduled_start,
+        "scheduled_end": scheduled_end,
+        "created_at": now_str()
+    }
+
+    group_tasks.append(new_task)
+
+    for member in group["members"]:
+        task_assignments.append({
+            "task_id": task_id_counter,
+            "user_id": member["user_id"],
+            "user_name": member["name"],
+            "status": "Pending",
+            "study_minutes": 0,
+            "points_earned": 0,
+            "proof_submitted": False
+        })
+
+    task_id_counter += 1
+
+    return jsonify({
+        "message": "Task created and assigned to all group members",
+        "task": new_task
+    })
+
+@app.route("/users/<int:user_id>/assigned-tasks", methods=["GET"])
+def get_assigned_tasks(user_id):
+    user = find_user(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    result = []
+    user_assignments = [a for a in task_assignments if a["user_id"] == user_id]
+
+    for assignment in user_assignments:
+        task = find_task(assignment["task_id"])
+        if task:
+            task_data = {
+                "task_id": task["id"],
+                "title": task["title"],
+                "category": task["category"],
+                "description": task["description"],
+                "group_id": task["group_id"],
+                "group_name": task["group_name"],
+                "created_by_name": task["created_by_name"],
+                "scheduled_start": task["scheduled_start"],
+                "scheduled_end": task["scheduled_end"],
+                "window_status": task_window_status(task),
+                "assignment_status": assignment["status"],
+                "study_minutes": assignment["study_minutes"],
+                "points_earned": assignment["points_earned"],
+                "proof_submitted": assignment["proof_submitted"]
+            }
+            result.append(task_data)
+
+    return jsonify(result)
+
+# =========================================================
+# GROUP STUDY SESSION FLOW
+# =========================================================
+@app.route("/group-sessions/start", methods=["POST"])
+def start_group_session():
+    global session_id_counter
+
+    data = request.json
+    user_id = data.get("user_id")
+    group_id = data.get("group_id")
+    task_id = data.get("task_id")
+
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    if not user_in_group(user_id, group):
+        return jsonify({"error": "User is not part of this group"}), 403
+
+    task = find_task(task_id)
+    if not task or task["group_id"] != group_id:
+        return jsonify({"error": "Task not found for this group"}), 404
+
+    if task_window_status(task) != "Active":
+        return jsonify({"error": "Task window is not active right now"}), 400
+
+    existing = get_active_group_session(group_id, task_id)
+    if existing:
+        return jsonify({"error": "A group session is already active for this task"}), 400
+
+    user = find_user(user_id)
+
+    new_session = {
+        "id": session_id_counter,
+        "group_id": group_id,
+        "group_name": group["name"],
+        "task_id": task_id,
+        "task_title": task["title"],
+        "started_by": user_id,
+        "started_by_name": user["name"] if user else "Unknown",
+        "status": "active",
+        "start_time": now_str(),
+        "end_time": None,
+        "participants": [
+            {
+                "user_id": user_id,
+                "user_name": user["name"] if user else "Unknown",
+                "joined_at": now_str(),
+                "left_at": None
+            }
+        ]
+    }
+
+    group_sessions.append(new_session)
+
+    for assignment in task_assignments:
+        if assignment["task_id"] == task_id and assignment["user_id"] == user_id:
+            assignment["status"] = "In Progress"
+
+    session_id_counter += 1
+
+    return jsonify({
+        "message": "Group session started",
+        "session": new_session
+    })
+
+@app.route("/groups/<int:group_id>/active-session", methods=["GET"])
+def get_group_active_session(group_id):
+    session = get_active_group_session(group_id)
+    if not session:
+        return jsonify(None)
+    return jsonify(session)
+
+@app.route("/group-sessions/join", methods=["POST"])
+def join_group_session():
+    data = request.json
+    user_id = data.get("user_id")
+    session_id = data.get("session_id")
+
+    session = next((s for s in group_sessions if s["id"] == session_id), None)
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    if session["status"] != "active":
+        return jsonify({"error": "Session is not active"}), 400
+
+    group = find_group(session["group_id"])
+    if not group or not user_in_group(user_id, group):
+        return jsonify({"error": "User is not part of this group"}), 403
+
+    already_joined = any(p["user_id"] == user_id for p in session["participants"])
+    if already_joined:
+        return jsonify({"error": "User already joined this session"}), 400
+
+    user = find_user(user_id)
+
+    session["participants"].append({
+        "user_id": user_id,
+        "user_name": user["name"] if user else "Unknown",
+        "joined_at": now_str(),
+        "left_at": None
+    })
+
+    for assignment in task_assignments:
+        if assignment["task_id"] == session["task_id"] and assignment["user_id"] == user_id:
+            assignment["status"] = "In Progress"
+
+    return jsonify({
+        "message": "Joined group session",
+        "session": session
+    })
+
+@app.route("/group-sessions/end", methods=["POST"])
+def end_group_session():
+    data = request.json
+    session_id = data.get("session_id")
+    user_id = data.get("user_id")
+    participant_minutes = data.get("participant_minutes", [])
+
+    session = next((s for s in group_sessions if s["id"] == session_id), None)
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    if session["status"] != "active":
+        return jsonify({"error": "Session already ended"}), 400
+
+    group = find_group(session["group_id"])
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    if user_id != group["leader_id"] and user_id != session["started_by"]:
+        return jsonify({"error": "Only leader or starter can end the session"}), 403
+
+    session["status"] = "ended"
+    session["end_time"] = now_str()
+
+    total_group_points = 0
+
+    for entry in participant_minutes:
+        participant_user_id = entry.get("user_id")
+        minutes = int(entry.get("minutes", 0))
+
+        if minutes < 0:
+            minutes = 0
+
+        points = study_points_from_minutes(minutes)
+        total_group_points += points
+
+        user = find_user(participant_user_id)
+        if user:
+            user["co2_points"] += points
+
+        for assignment in task_assignments:
+            if assignment["task_id"] == session["task_id"] and assignment["user_id"] == participant_user_id:
+                assignment["study_minutes"] += minutes
+                assignment["points_earned"] += points
+
+    group["total_points"] += total_group_points
+
+    return jsonify({
+        "message": "Group session ended. Now submit proof for each participant.",
+        "session": session,
+        "group_points_added": total_group_points
+    })
+
+# =========================================================
+# SESSION PROOF / COMPLETION FLOW
+# =========================================================
+@app.route("/tasks/<int:task_id>/submit-proof", methods=["POST"])
+def submit_proof(task_id):
+    global proof_id_counter
+
+    data = request.json
+    user_id = data.get("user_id")
+    completed_work = data.get("completed_work", "").strip()
+    learned_summary = data.get("learned_summary", "").strip()
+    confidence = data.get("confidence", 0)
+
+    task = find_task(task_id)
+    if not task:
+        return jsonify({"error": "Task not found"}), 404
+
+    assignment = next(
+        (a for a in task_assignments if a["task_id"] == task_id and a["user_id"] == user_id),
+        None
+    )
+
+    if not assignment:
+        return jsonify({"error": "Task assignment not found"}), 404
+
+    if not completed_work or not learned_summary:
+        return jsonify({"error": "Completed work and learned summary are required"}), 400
+
+    try:
+        confidence = int(confidence)
+    except:
+        confidence = 0
+
+    if confidence < 1 or confidence > 10:
+        return jsonify({"error": "Confidence must be between 1 and 10"}), 400
+
+    proof = {
+        "id": proof_id_counter,
+        "task_id": task_id,
+        "user_id": user_id,
+        "completed_work": completed_work,
+        "learned_summary": learned_summary,
+        "confidence": confidence,
+        "submitted_at": now_str(),
+        "validated": True
+    }
+
+    session_proofs.append(proof)
+    proof_id_counter += 1
+
+    assignment["proof_submitted"] = True
+    assignment["status"] = "Completed"
+
+    return jsonify({
+        "message": "Proof submitted successfully",
+        "proof": proof
+    })
+
+@app.route("/tasks/<int:task_id>/proofs", methods=["GET"])
+def get_task_proofs(task_id):
+    proofs = [p for p in session_proofs if p["task_id"] == task_id]
+    return jsonify(proofs)
+
+# =========================================================
+# LEADERBOARDS
+# =========================================================
+@app.route("/leaderboard", methods=["GET"])
+def leaderboard():
+    sorted_users = sorted(users, key=lambda x: x["co2_points"], reverse=True)
+    return jsonify(sorted_users)
+
+@app.route("/group-leaderboard", methods=["GET"])
+def group_leaderboard():
+    sorted_groups = sorted(groups, key=lambda x: x["total_points"], reverse=True)
+    return jsonify(sorted_groups)
+
+# =========================================================
+# RUN
+# =========================================================
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(debug=True)
