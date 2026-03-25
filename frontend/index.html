@@ -31,105 +31,117 @@
 
     <div class="page">
         <div id="dashboardSection" class="section active">
-            <div class="hero-card">
-                <h1 class="hero-title">Your focus space</h1>
-                <p class="hero-subtext">Study inside task windows, avoid doomscrolling, and help your group climb the leaderboard.</p>
+            <div class="home-layout">
+                <div class="home-topbar-card">
+                    <div class="home-topbar-left">
+                        <label for="currentUserSelect">Current User</label>
+                        <select id="currentUserSelect">
+                            <option value="1">Andriya</option>
+                            <option value="2">Aisha</option>
+                            <option value="3">Rohan</option>
+                        </select>
+                    </div>
 
-                <div class="hero-pills">
-                    <div class="pill" id="heroNamePill">Name: User</div>
-                    <div class="pill" id="heroPointsPill">CO₂ Points: 45</div>
-                    <div class="pill" id="heroMoodPill">Mood: neutral</div>
-                    <div class="pill" id="heroDoomPill">Doom Scroll: 00:00</div>
+                    <div class="home-topbar-right">
+                        <div class="pill" id="heroPointsPill">CO₂ Points: 0</div>
+                        <div class="pill" id="heroMoodPill">Mood: neutral</div>
+                        <div class="pill" id="heroDoomPill">Doom Scroll: 00:00</div>
+                    </div>
                 </div>
-            </div>
 
-            <div class="dashboard-grid">
-                <div class="card">
-                    <div class="card-title-row">
-                        <h2>Study Status</h2>
+                <div class="study-focus-card">
+                    <div class="study-focus-head">
+                        <div class="study-focus-mini" id="heroNamePill">Name: User</div>
                         <span class="status-pill" id="sessionBadge">No Active Session</span>
                     </div>
 
-                    <p id="status">Loading avatar data...</p>
-                    <p class="muted" id="sessionStatus">Session status loading...</p>
+                    <div class="study-focus-center">
+                        <div class="study-time-label">Time studied</div>
+                        <div class="study-time-value" id="studyTotalDisplay">00h 00m</div>
+                        <div class="study-time-subtext" id="sessionStatus">No study session is active.</div>
+                    </div>
 
                     <div class="timer-box">
-                        <div class="timer-label">Focus timer</div>
+                        <div class="timer-label">Solo session timer</div>
                         <div class="timer" id="timerDisplay">00:00</div>
                     </div>
 
-                    <div class="action-buttons">
+                    <div class="action-buttons center-actions">
                         <button class="primary-btn" id="startBtn">Start Solo Session</button>
                         <button class="secondary-btn" id="endBtn">End Solo Session</button>
                         <button class="ghost-btn" id="refreshBtn">Refresh</button>
                     </div>
 
-                    <div class="message-inline" id="messageBox">Ready when you are.</div>
+                    <div class="message-inline center-message" id="messageBox">Ready when you are.</div>
                 </div>
 
-                <div class="card">
-                    <div class="card-title-row">
-                        <h3>Individual Leaderboard</h3>
-                    </div>
-                    <div id="leaderboardList">Loading leaderboard...</div>
-                </div>
-
-                <div class="card">
-                    <div class="card-title-row">
-                        <h3>Group Leaderboard</h3>
-                    </div>
-                    <div id="groupLeaderboardList">Loading group leaderboard...</div>
-                </div>
-
-                <div class="card span-full">
-                    <div class="card-title-row">
-                        <h3>Assigned Tasks</h3>
+                <div class="assigned-tasks-card">
+                    <div class="card-title-row centered-card-title">
+                        <div>
+                            <h2>Assigned Tasks</h2>
+                            <p class="muted section-subtext">
+                                Tasks created by the leaders of the groups you are part of will appear here.
+                            </p>
+                        </div>
                     </div>
                     <div id="tasksList">Loading tasks...</div>
                 </div>
-            </div>
 
-            <div class="dashboard-grid">
-                <div class="card">
-                    <div class="card-title-row">
-                        <h3>Current User</h3>
-                    </div>
-                    <label for="currentUserSelect">Select Demo User:</label>
-                    <select id="currentUserSelect">
-                        <option value="1">Andriya</option>
-                        <option value="2">Aisha</option>
-                        <option value="3">Rohan</option>
-                    </select>
+                <div class="home-bottom-nav-card">
+                    <button class="bottom-nav-btn active" id="groupsTabBtn">Groups</button>
+                    <button class="bottom-nav-btn" id="leaderboardTabBtn">Leaderboard</button>
                 </div>
 
-                <div class="card">
-                    <div class="card-title-row">
-                        <h3>Groups</h3>
-                    </div>
+                <div class="bottom-panel active" id="groupsPanel">
+                    <div class="groups-panel-grid">
+                        <div class="card">
+                            <div class="card-title-row">
+                                <h3>Groups</h3>
+                            </div>
 
-                    <div class="form-block">
-                        <h4>Create Group</h4>
-                        <input type="text" id="groupNameInput" placeholder="Enter group name">
-                        <button class="primary-btn" onclick="createGroup()">Create Group</button>
-                    </div>
+                            <div class="form-block">
+                                <h4>Create Group</h4>
+                                <input type="text" id="groupNameInput" placeholder="Enter group name">
+                                <button class="primary-btn" onclick="createGroup()">Create Group</button>
+                            </div>
 
-                    <div class="form-block">
-                        <h4>Join Group</h4>
-                        <input type="text" id="joinCodeInput" placeholder="Enter join code">
-                        <button class="secondary-btn" onclick="joinGroup()">Join Group</button>
-                    </div>
+                            <div class="form-block">
+                                <h4>Join Group</h4>
+                                <input type="text" id="joinCodeInput" placeholder="Enter join code">
+                                <button class="secondary-btn" onclick="joinGroup()">Join Group</button>
+                            </div>
 
-                    <div>
-                        <h4>My Groups</h4>
-                        <div id="myGroupsList"></div>
+                            <div>
+                                <h4>My Groups</h4>
+                                <div id="myGroupsList">Loading groups...</div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title-row">
+                                <h3>Selected Group</h3>
+                            </div>
+                            <div id="groupDetails">Select a group to view chat and leaderboard.</div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="card span-full">
-                    <div class="card-title-row">
-                        <h3>Selected Group Details</h3>
+                <div class="bottom-panel" id="leaderboardPanel">
+                    <div class="leaderboard-panel-grid">
+                        <div class="card">
+                            <div class="card-title-row">
+                                <h3>Group Leaderboard</h3>
+                            </div>
+                            <div id="groupLeaderboardList">Loading group leaderboard...</div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title-row">
+                                <h3>Individual Leaderboard</h3>
+                            </div>
+                            <div id="leaderboardList">Loading individual leaderboard...</div>
+                        </div>
                     </div>
-                    <div id="groupDetails">Select a group to view details.</div>
                 </div>
             </div>
         </div>

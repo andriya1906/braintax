@@ -68,10 +68,28 @@ function formatTime(secondsValue) {
     return minText + ":" + secText;
 }
 
+function formatStudyTime(totalSeconds) {
+    const hours = Math.floor((totalSeconds || 0) / 3600);
+    const minutes = Math.floor(((totalSeconds || 0) % 3600) / 60);
+    const hourText = hours < 10 ? "0" + hours : hours;
+    const minuteText = minutes < 10 ? "0" + minutes : minutes;
+    return `${hourText}h ${minuteText}m`;
+}
+
 function formatDateTime(value) {
     if (!value) return "-";
     const date = new Date(value);
     return date.toLocaleString();
+}
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return "";
+    return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 function showSection(sectionName) {
@@ -100,13 +118,34 @@ function showSection(sectionName) {
     }
 }
 
+function switchBottomPanel(panelName) {
+    const groupsPanel = document.getElementById("groupsPanel");
+    const leaderboardPanel = document.getElementById("leaderboardPanel");
+    const groupsTabBtn = document.getElementById("groupsTabBtn");
+    const leaderboardTabBtn = document.getElementById("leaderboardTabBtn");
+
+    if (groupsPanel) groupsPanel.classList.remove("active");
+    if (leaderboardPanel) leaderboardPanel.classList.remove("active");
+    if (groupsTabBtn) groupsTabBtn.classList.remove("active");
+    if (leaderboardTabBtn) leaderboardTabBtn.classList.remove("active");
+
+    if (panelName === "groups") {
+        if (groupsPanel) groupsPanel.classList.add("active");
+        if (groupsTabBtn) groupsTabBtn.classList.add("active");
+    }
+
+    if (panelName === "leaderboard") {
+        if (leaderboardPanel) leaderboardPanel.classList.add("active");
+        if (leaderboardTabBtn) leaderboardTabBtn.classList.add("active");
+    }
+}
+
 function loadAvatarData() {
     fetch(`${API_BASE}/avatar-data`)
         .then(response => response.json())
         .then(data => {
             avatarData = data;
 
-            const status = document.getElementById("status");
             const sessionStatus = document.getElementById("sessionStatus");
             const sessionBadge = document.getElementById("sessionBadge");
             const heroNamePill = document.getElementById("heroNamePill");
@@ -115,11 +154,7 @@ function loadAvatarData() {
             const heroDoomPill = document.getElementById("heroDoomPill");
             const previewName = document.getElementById("previewName");
             const previewAvatar = document.getElementById("previewAvatar");
-
-            if (status) {
-                status.innerText =
-                    "Name: " + data.name + " | CO₂ Points: " + data.co2_points + " | Mood: " + data.mood;
-            }
+            const studyTotalDisplay = document.getElementById("studyTotalDisplay");
 
             if (sessionStatus) {
                 sessionStatus.innerText =
@@ -137,12 +172,14 @@ function loadAvatarData() {
                 heroDoomPill.innerText = "Doom Scroll: " + formatTime(data.doom_scroll_total_seconds || 0);
             }
 
+            if (studyTotalDisplay) {
+                studyTotalDisplay.innerText = formatStudyTime(data.study_total_seconds || 0);
+            }
+
             if (previewName) previewName.innerText = "Name: " + data.name;
             if (previewAvatar) previewAvatar.innerText = "Avatar Style: " + data.avatar_type;
         })
         .catch(error => {
-            const status = document.getElementById("status");
-            if (status) status.innerText = "Could not connect to backend.";
             console.log(error);
         });
 }
@@ -176,15 +213,20 @@ function saveProfile() {
             avatar_type: avatarType
         })
     })
-    .then(response => response.json())
-    .then(data => {
+    .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "Could not update profile.");
+
         const profileMessage = document.getElementById("profileMessage");
         if (profileMessage) profileMessage.innerText = data.message;
         showToast(data.message, "success");
         refreshAll();
+        if (selectedGroupId) {
+            openGroup(selectedGroupId);
+        }
     })
     .catch(error => {
-        showToast("Could not update profile.", "error");
+        showToast(error.message || "Could not update profile.", "error");
         console.log(error);
     });
 }
@@ -202,7 +244,7 @@ function loadLeaderboard() {
                     <div class="leaderboard-item">
                         <div class="leaderboard-rank">
                             <div class="rank-badge">${index + 1}</div>
-                            <span>${item.name}</span>
+                            <span>${escapeHtml(item.name)}</span>
                         </div>
                         <span class="score-text">${points} pts</span>
                     </div>
@@ -224,17 +266,18 @@ function loadGroupLeaderboard() {
             let html = "";
 
             data.forEach((item, index) => {
-                const groupName = item.group_name || item.name || "Group";
-                const points = item.points !== undefined ? item.points : (item.total_points || 0);
-                const yourContribution = item.your_contribution !== undefined ? item.your_contribution : null;
+                const groupName = item.name || "Group";
+                const points = item.total_points || 0;
+                const yourContribution = item.your_contribution || 0;
+                const memberCount = item.member_count || 0;
 
                 html += `
                     <div class="leaderboard-item">
                         <div class="leaderboard-rank">
                             <div class="rank-badge">${index + 1}</div>
                             <div>
-                                <div>${groupName}</div>
-                                ${yourContribution !== null ? `<div class="score-text">Your contribution: ${yourContribution}</div>` : ``}
+                                <div>${escapeHtml(groupName)}</div>
+                                <div class="score-text">Members: ${memberCount} • Your contribution: ${yourContribution} pts</div>
                             </div>
                         </div>
                         <span class="score-text">${points} pts</span>
@@ -262,11 +305,19 @@ function loadAssignedTasks() {
             let html = "";
 
             data.forEach(task => {
+                const activeActionHtml = task.window_status === "Active"
+                    ? (
+                        task.has_active_session
+                            ? `<button class="secondary-btn" onclick="joinTaskSession(${task.active_session_id}, ${task.group_id})">Join Session</button>`
+                            : `<button class="primary-btn" onclick="startTaskSessionFromAssigned(${task.group_id}, ${task.task_id})">Start Session</button>`
+                    )
+                    : "";
+
                 html += `
                     <div class="task-item">
-                        <div class="task-title">${task.title}</div>
-                        <div class="task-meta">Created by: ${task.created_by_name || "-"}</div>
-                        <div class="task-meta">Category: ${task.category || "-"} • Group: ${task.group_name || "-"}</div>
+                        <div class="task-title">${escapeHtml(task.title)}</div>
+                        <div class="task-meta">Created by: ${escapeHtml(task.created_by_name || "-")}</div>
+                        <div class="task-meta">Category: ${escapeHtml(task.category || "-")} • Group: ${escapeHtml(task.group_name || "-")}</div>
                         <div class="task-meta">Window: ${formatDateTime(task.scheduled_start)} to ${formatDateTime(task.scheduled_end)}</div>
                         <div class="task-meta">Study Minutes: ${task.study_minutes || 0} • Points Earned: ${task.points_earned || 0}</div>
                         <div class="status-pill">Task Window: ${task.window_status || "Pending"}</div>
@@ -274,6 +325,7 @@ function loadAssignedTasks() {
                         <div class="task-meta">Proof Submitted: ${task.proof_submitted ? "Yes" : "No"}</div>
 
                         <div class="task-actions">
+                            ${activeActionHtml}
                             <button class="ghost-btn" onclick="openProofModal(${task.task_id})">Submit Proof</button>
                         </div>
                     </div>
@@ -321,7 +373,7 @@ function loadRestrictedApps() {
                             <div class="app-left">
                                 <div class="app-icon">${appItem.icon}</div>
                                 <div>
-                                    <div class="app-title">${appItem.name}</div>
+                                    <div class="app-title">${escapeHtml(appItem.name)}</div>
                                     <div class="app-meta ${appStatusClass}">Status: ${appStatusText}</div>
                                     <div class="app-meta">Used: ${formatTime(appItem.used_seconds)} • Remaining: ${formatTime(appItem.remaining_seconds)}</div>
                                     <div class="app-meta">Limit: ${appItem.limit_minutes} minutes</div>
@@ -404,7 +456,7 @@ function loadAllData() {
 
     const groupDetails = document.getElementById("groupDetails");
     if (groupDetails && !selectedGroupId) {
-        groupDetails.innerHTML = "Select a group to view details.";
+        groupDetails.innerHTML = "Select a group to view chat and leaderboard.";
     }
 }
 
@@ -443,8 +495,10 @@ function endSession() {
     fetch(`${API_BASE}/end-session`, {
         method: "POST"
     })
-    .then(response => response.json())
-    .then(data => {
+    .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "Could not end session.");
+
         const messageBox = document.getElementById("messageBox");
         if (messageBox) messageBox.innerText = data.message;
 
@@ -454,95 +508,8 @@ function endSession() {
         refreshAll();
     })
     .catch(error => {
-        showToast("Could not end session.", "error");
+        showToast(error.message || "Could not end session.", "error");
         console.log(error);
-    });
-}
-
-function startTask(taskId) {
-    fetch(`${API_BASE}/start-task`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ task_id: taskId })
-    })
-    .then(async response => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message);
-
-        const messageBox = document.getElementById("messageBox");
-        if (messageBox) messageBox.innerText = data.message;
-
-        showToast(data.message, "success");
-        startTimer();
-        refreshAll();
-    })
-    .catch(error => {
-        const messageBox = document.getElementById("messageBox");
-        if (messageBox) messageBox.innerText = error.message;
-
-        showToast(error.message, "warning");
-    });
-}
-
-function endTask(taskId) {
-    fetch(`${API_BASE}/end-task`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ task_id: taskId })
-    })
-    .then(async response => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message);
-
-        const messageBox = document.getElementById("messageBox");
-        if (messageBox) {
-            messageBox.innerText = data.message + (data.earned_points !== undefined ? " | Points earned: " + data.earned_points : "");
-        }
-
-        showToast(data.message, "success");
-        stopTimer();
-        resetTimer();
-        refreshAll();
-    })
-    .catch(error => {
-        const messageBox = document.getElementById("messageBox");
-        if (messageBox) messageBox.innerText = error.message;
-
-        showToast(error.message, "warning");
-    });
-}
-
-function updateTaskWindow(taskId) {
-    const startInput = document.getElementById("taskStart" + taskId);
-    const endInput = document.getElementById("taskEnd" + taskId);
-
-    const startValue = startInput ? startInput.value : "";
-    const endValue = endInput ? endInput.value : "";
-
-    fetch(`${API_BASE}/update-task-window`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            task_id: taskId,
-            scheduled_start: startValue,
-            scheduled_end: endValue
-        })
-    })
-    .then(async response => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message);
-
-        showToast(data.message, "success");
-        refreshAll();
-    })
-    .catch(error => {
-        showToast(error.message, "warning");
     });
 }
 
@@ -635,6 +602,7 @@ function createGroup() {
         showToast(result.data.message, "success");
         loadMyGroups();
         loadLeaderboards();
+        switchBottomPanel("groups");
     })
     .catch(error => {
         console.log(error);
@@ -668,6 +636,8 @@ function joinGroup() {
         document.getElementById("joinCodeInput").value = "";
         showToast(result.data.message, "success");
         loadMyGroups();
+        loadLeaderboards();
+        switchBottomPanel("groups");
     })
     .catch(error => {
         console.log(error);
@@ -689,11 +659,18 @@ function loadMyGroups() {
 
             container.innerHTML = groups.map(group => `
                 <div class="item-card">
-                    <p><strong>${group.name}</strong></p>
-                    <p>Join Code: ${group.join_code}</p>
-                    <p>Leader ID: ${group.leader_id}</p>
-                    <button class="primary-btn" onclick="openGroup(${group.id})">Open Group</button>
-                    <button class="secondary-btn" onclick="leaveGroup(${group.id})">Leave Group</button>
+                    <div class="group-list-card-head">
+                        <div>
+                            <p><strong>${escapeHtml(group.name)}</strong></p>
+                            <p class="muted">Join Code: ${escapeHtml(group.join_code)}</p>
+                            <p class="muted">Members: ${group.member_count || 0}</p>
+                            <p class="muted">Your Contribution: ${group.your_contribution || 0} pts</p>
+                        </div>
+                    </div>
+                    <div class="task-actions">
+                        <button class="primary-btn" onclick="openGroup(${group.id})">Open Group</button>
+                        <button class="secondary-btn" onclick="leaveGroup(${group.id})">Leave Group</button>
+                    </div>
                 </div>
             `).join("");
         })
@@ -704,14 +681,16 @@ function loadMyGroups() {
 
 function openGroup(groupId) {
     selectedGroupId = groupId;
+    switchBottomPanel("groups");
 
     Promise.all([
         fetch(`${API_BASE}/groups/${groupId}`).then(r => r.json()),
         fetch(`${API_BASE}/groups/${groupId}/messages`).then(r => r.json()),
         fetch(`${API_BASE}/groups/${groupId}/tasks`).then(r => r.json()),
-        fetch(`${API_BASE}/groups/${groupId}/active-session`).then(r => r.json())
+        fetch(`${API_BASE}/groups/${groupId}/active-session`).then(r => r.json()),
+        fetch(`${API_BASE}/groups/${groupId}/member-leaderboard`).then(r => r.json())
     ])
-    .then(([group, messages, tasks, session]) => {
+    .then(([group, messages, tasks, session, memberLeaderboard]) => {
         selectedGroupData = group;
         activeSessionId = session ? session.id : null;
 
@@ -719,96 +698,132 @@ function openGroup(groupId) {
         const groupDetails = document.getElementById("groupDetails");
         if (!groupDetails) return;
 
-        groupDetails.innerHTML = `
-            <div class="item-card">
-                <h3>${group.name}</h3>
-                <p><strong>Join Code:</strong> ${group.join_code}</p>
-                <p><strong>Total Points:</strong> ${group.total_points}</p>
-                <p><strong>Members:</strong> ${group.members.map(m => `${m.name} (${m.role})`).join(", ")}</p>
-            </div>
-
-            <div class="item-card">
-                <h3>Group Chat</h3>
-                <div class="chat-box">
-                    ${messages.length
-                        ? messages.map(msg => `
-                            <div class="chat-message">
-                                <strong>${msg.sender_name}:</strong> ${msg.text}
-                            </div>
-                        `).join("")
-                        : "<p>No messages yet.</p>"
-                    }
+        const tasksHtml = tasks.length
+            ? tasks.map(task => `
+                <div class="item-card">
+                    <p><strong>${escapeHtml(task.title)}</strong></p>
+                    <p>Category: ${escapeHtml(task.category || "-")}</p>
+                    <p>Description: ${escapeHtml(task.description || "-")}</p>
+                    <p>Window: ${formatDateTime(task.scheduled_start)} to ${formatDateTime(task.scheduled_end)}</p>
+                    <p>Status: ${task.window_status}</p>
+                    <div class="task-actions">
+                        ${task.window_status === "Active" && !task.has_active_session
+                            ? `<button class="primary-btn" onclick="startGroupSession(${task.id})">Start Session</button>`
+                            : ``
+                        }
+                        ${task.has_active_session
+                            ? `<button class="secondary-btn" onclick="joinActiveSession(${task.active_session_id})">Join Active Session</button>`
+                            : ``
+                        }
+                    </div>
                 </div>
+            `).join("")
+            : "<p>No tasks yet.</p>";
 
-                <textarea id="groupMessageInput" rows="2" placeholder="Type message"></textarea>
-                <button class="primary-btn" onclick="sendGroupMessage()">Send</button>
-            </div>
-
-            <div class="item-card">
-                <h3>Group Tasks</h3>
-                ${
-                    isLeader
-                        ? `
-                        <div class="form-block">
-                            <h4>Create Task</h4>
-                            <input type="text" id="taskTitleInput" placeholder="Task title">
-                            <input type="text" id="taskCategoryInput" placeholder="Category">
-                            <textarea id="taskDescriptionInput" rows="3" placeholder="Description"></textarea>
-                            <label>Start</label>
-                            <input type="datetime-local" id="taskStartInput">
-                            <label>End</label>
-                            <input type="datetime-local" id="taskEndInput">
-                            <button class="primary-btn" onclick="createTaskForGroup()">Create Group Task</button>
+        const memberLeaderboardHtml = memberLeaderboard.length
+            ? memberLeaderboard.map((member, index) => `
+                <div class="leaderboard-item">
+                    <div class="leaderboard-rank">
+                        <div class="rank-badge">${index + 1}</div>
+                        <div>
+                            <div>${escapeHtml(member.name)}</div>
+                            <div class="score-text">${escapeHtml(member.role)}</div>
                         </div>
-                        `
-                        : `<p>Only the leader can create tasks.</p>`
-                }
+                    </div>
+                    <span class="score-text">${member.points || 0} pts</span>
+                </div>
+            `).join("")
+            : "<p>No member contribution data yet.</p>";
 
-                <div>
+        const activeSessionHtml = session
+            ? `
+                <div class="item-card">
+                    <h4>Active Group Session</h4>
+                    <p><strong>Task:</strong> ${escapeHtml(session.task_title)}</p>
+                    <p><strong>Started By:</strong> ${escapeHtml(session.started_by_name)}</p>
+                    <p><strong>Status:</strong> ${escapeHtml(session.status)}</p>
+                    <p><strong>Participants:</strong> ${session.participants.map(p => escapeHtml(p.user_name)).join(", ")}</p>
                     ${
-                        tasks.length
-                            ? tasks.map(task => `
-                                <div class="item-card">
-                                    <p><strong>${task.title}</strong></p>
-                                    <p>Category: ${task.category || "-"}</p>
-                                    <p>Description: ${task.description || "-"}</p>
-                                    <p>Window: ${formatDateTime(task.scheduled_start)} to ${formatDateTime(task.scheduled_end)}</p>
-                                    <p>Status: ${task.window_status}</p>
-                                    <button class="primary-btn" onclick="startGroupSession(${task.id})">Start Session</button>
-                                    ${session && session.task_id === task.id ? `<button class="secondary-btn" onclick="joinActiveSession(${session.id})">Join Active Session</button>` : ""}
+                        isLeader || session.started_by === currentUserId
+                            ? `
+                                <div class="form-block">
+                                    <p>Enter minutes studied by each participant before ending:</p>
+                                    ${session.participants.map(p => `
+                                        <label>${escapeHtml(p.user_name)}</label>
+                                        <input type="number" id="minutes_${p.user_id}" min="0" placeholder="Minutes studied">
+                                    `).join("")}
+                                    <button class="secondary-btn" onclick="endGroupSession(${session.id}, ${session.task_id})">End Session</button>
                                 </div>
-                            `).join("")
-                            : "<p>No tasks yet.</p>"
+                            `
+                            : `<p>Leader or starter can end session.</p>`
                     }
                 </div>
-            </div>
+            `
+            : `
+                <div class="item-card">
+                    <h4>Active Group Session</h4>
+                    <p>No active group session.</p>
+                </div>
+            `;
 
-            <div class="item-card">
-                <h3>Active Group Session</h3>
-                ${
-                    session
-                        ? `
-                            <p><strong>Task:</strong> ${session.task_title}</p>
-                            <p><strong>Started By:</strong> ${session.started_by_name}</p>
-                            <p><strong>Status:</strong> ${session.status}</p>
-                            <p><strong>Participants:</strong> ${session.participants.map(p => p.user_name).join(", ")}</p>
-                            ${
-                                isLeader || session.started_by === currentUserId
-                                    ? `
-                                        <div class="form-block">
-                                            <p>Enter minutes studied by each participant before ending:</p>
-                                            ${session.participants.map(p => `
-                                                <label>${p.user_name}</label>
-                                                <input type="number" id="minutes_${p.user_id}" min="0" placeholder="Minutes studied">
-                                            `).join("")}
-                                            <button class="secondary-btn" onclick="endGroupSession(${session.id}, ${session.task_id})">End Session</button>
-                                        </div>
-                                    `
-                                    : `<p>Leader or starter can end session.</p>`
+        groupDetails.innerHTML = `
+            <div class="group-detail-stack">
+                <div class="item-card">
+                    <h3>${escapeHtml(group.name)}</h3>
+                    <p><strong>Join Code:</strong> ${escapeHtml(group.join_code)}</p>
+                    <p><strong>Total Group Points:</strong> ${group.total_points || 0}</p>
+                    <p><strong>Your Contribution:</strong> ${group.your_contribution || 0} pts</p>
+                    <p><strong>Members:</strong> ${group.members.map(m => `${escapeHtml(m.name)} (${escapeHtml(m.role)})`).join(", ")}</p>
+                </div>
+
+                <div class="group-detail-two-col">
+                    <div class="item-card">
+                        <h3>Group Chat</h3>
+                        <div class="chat-box">
+                            ${messages.length
+                                ? messages.map(msg => `
+                                    <div class="chat-message">
+                                        <strong>${escapeHtml(msg.sender_name)}:</strong> ${escapeHtml(msg.text)}
+                                    </div>
+                                `).join("")
+                                : "<p>No messages yet.</p>"
                             }
-                        `
-                        : "<p>No active group session.</p>"
-                }
+                        </div>
+
+                        <textarea id="groupMessageInput" rows="2" placeholder="Type message"></textarea>
+                        <button class="primary-btn" onclick="sendGroupMessage()">Send</button>
+                    </div>
+
+                    <div class="item-card">
+                        <h3>Group Member Leaderboard</h3>
+                        <div>${memberLeaderboardHtml}</div>
+                    </div>
+                </div>
+
+                <div class="item-card">
+                    <h3>Group Tasks</h3>
+                    ${
+                        isLeader
+                            ? `
+                            <div class="form-block">
+                                <h4>Create Task</h4>
+                                <input type="text" id="taskTitleInput" placeholder="Task title">
+                                <input type="text" id="taskCategoryInput" placeholder="Category">
+                                <textarea id="taskDescriptionInput" rows="3" placeholder="Description"></textarea>
+                                <label>Start</label>
+                                <input type="datetime-local" id="taskStartInput">
+                                <label>End</label>
+                                <input type="datetime-local" id="taskEndInput">
+                                <button class="primary-btn" onclick="createTaskForGroup()">Create Group Task</button>
+                            </div>
+                            `
+                            : `<p>Only the leader can create tasks.</p>`
+                    }
+
+                    <div>${tasksHtml}</div>
+                </div>
+
+                ${activeSessionHtml}
             </div>
         `;
     })
@@ -834,14 +849,19 @@ function leaveGroup(groupId) {
         }
 
         showToast(result.data.message, "success");
-        selectedGroupId = null;
-        selectedGroupData = null;
 
-        const groupDetails = document.getElementById("groupDetails");
-        if (groupDetails) groupDetails.innerHTML = "Select a group to view details.";
+        if (selectedGroupId === groupId) {
+            selectedGroupId = null;
+            selectedGroupData = null;
+            activeSessionId = null;
+
+            const groupDetails = document.getElementById("groupDetails");
+            if (groupDetails) groupDetails.innerHTML = "Select a group to view chat and leaderboard.";
+        }
 
         loadMyGroups();
         loadLeaderboards();
+        loadAssignedTasks();
     })
     .catch(error => {
         console.log(error);
@@ -958,6 +978,7 @@ function startGroupSession(taskId) {
         activeSessionId = result.data.session.id;
         openGroup(selectedGroupId);
         loadAssignedTasks();
+        loadLeaderboards();
     })
     .catch(error => {
         console.log(error);
@@ -992,6 +1013,67 @@ function joinActiveSession(sessionId) {
     });
 }
 
+function startTaskSessionFromAssigned(groupId, taskId) {
+    selectedGroupId = groupId;
+    fetch(`${API_BASE}/group-sessions/start`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            user_id: currentUserId,
+            group_id: groupId,
+            task_id: taskId
+        })
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(result => {
+        if (!result.ok) {
+            showToast(result.data.error || "Could not start session", "warning");
+            return;
+        }
+
+        showToast(result.data.message, "success");
+        activeSessionId = result.data.session.id;
+        switchBottomPanel("groups");
+        openGroup(groupId);
+        loadAssignedTasks();
+        loadLeaderboards();
+    })
+    .catch(error => {
+        console.log(error);
+        showToast("Could not start session", "error");
+    });
+}
+
+function joinTaskSession(sessionId, groupId) {
+    selectedGroupId = groupId;
+
+    fetch(`${API_BASE}/group-sessions/join`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            user_id: currentUserId,
+            session_id: sessionId
+        })
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(result => {
+        if (!result.ok) {
+            showToast(result.data.error || "Could not join session", "warning");
+            return;
+        }
+
+        showToast(result.data.message, "success");
+        activeSessionId = sessionId;
+        switchBottomPanel("groups");
+        openGroup(groupId);
+        loadAssignedTasks();
+    })
+    .catch(error => {
+        console.log(error);
+        showToast("Could not join session", "error");
+    });
+}
+
 function endGroupSession(sessionId, taskId) {
     if (!selectedGroupData) {
         showToast("No group selected", "warning");
@@ -999,18 +1081,16 @@ function endGroupSession(sessionId, taskId) {
     }
 
     const participantMinutes = [];
-    const members = selectedGroupData.members || [];
+    const currentActiveParticipants = document.querySelectorAll('[id^="minutes_"]');
 
-    for (const member of members) {
-        const input = document.getElementById(`minutes_${member.user_id}`);
-        if (input) {
-            const minutes = parseInt(input.value || "0");
-            participantMinutes.push({
-                user_id: member.user_id,
-                minutes: minutes
-            });
-        }
-    }
+    currentActiveParticipants.forEach(input => {
+        const userId = parseInt(input.id.replace("minutes_", ""));
+        const minutes = parseInt(input.value || "0");
+        participantMinutes.push({
+            user_id: userId,
+            minutes: isNaN(minutes) ? 0 : minutes
+        });
+    });
 
     fetch(`${API_BASE}/group-sessions/end`, {
         method: "POST",
@@ -1094,6 +1174,10 @@ function submitProof() {
         showToast(result.data.message, "success");
         closeProofModal();
         loadAssignedTasks();
+        loadLeaderboards();
+        if (selectedGroupId) {
+            openGroup(selectedGroupId);
+        }
     })
     .catch(error => {
         console.log(error);
@@ -1108,6 +1192,7 @@ function submitProof() {
 document.addEventListener("DOMContentLoaded", function() {
     initTheme();
     updateTimerDisplay();
+    switchBottomPanel("groups");
 
     const menuBtn = document.getElementById("menuBtn");
     const dropdownMenu = document.getElementById("dropdownMenu");
@@ -1126,6 +1211,21 @@ document.addEventListener("DOMContentLoaded", function() {
     const closeModal = document.getElementById("closeModal");
 
     const currentUserSelect = document.getElementById("currentUserSelect");
+    const groupsTabBtn = document.getElementById("groupsTabBtn");
+    const leaderboardTabBtn = document.getElementById("leaderboardTabBtn");
+
+    if (groupsTabBtn) {
+        groupsTabBtn.addEventListener("click", function() {
+            switchBottomPanel("groups");
+        });
+    }
+
+    if (leaderboardTabBtn) {
+        leaderboardTabBtn.addEventListener("click", function() {
+            switchBottomPanel("leaderboard");
+            loadLeaderboards();
+        });
+    }
 
     if (currentUserSelect) {
         currentUserSelect.value = currentUserId;
@@ -1159,8 +1259,11 @@ document.addEventListener("DOMContentLoaded", function() {
                 body: JSON.stringify({ user_id: currentUserId })
             })
             .then(() => {
+                const groupDetails = document.getElementById("groupDetails");
+                if (groupDetails) groupDetails.innerHTML = "Select a group to view chat and leaderboard.";
                 refreshAll();
                 loadAllData();
+                switchBottomPanel("groups");
             })
             .catch(error => {
                 console.log(error);
@@ -1222,13 +1325,20 @@ document.addEventListener("DOMContentLoaded", function() {
         co2Button.addEventListener("click", function() {
             if (!avatarData) return;
 
-            document.getElementById("pointsInfo").innerText = "CO₂ Points: " + avatarData.co2_points;
-            document.getElementById("moodInfo").innerText = "Mood: " + avatarData.mood;
-            document.getElementById("roomInfo").innerText = "Room State: " + avatarData.room_state;
-            document.getElementById("avatarTypeInfo").innerText = "Avatar Style: " + avatarData.avatar_type;
+            const pointsInfo = document.getElementById("pointsInfo");
+            const moodInfo = document.getElementById("moodInfo");
+            const roomInfo = document.getElementById("roomInfo");
+            const avatarTypeInfo = document.getElementById("avatarTypeInfo");
+
+            if (pointsInfo) pointsInfo.innerText = "CO₂ Points: " + avatarData.co2_points;
+            if (moodInfo) moodInfo.innerText = "Mood: " + avatarData.mood;
+            if (roomInfo) roomInfo.innerText = "Room State: " + avatarData.room_state;
+            if (avatarTypeInfo) avatarTypeInfo.innerText = "Avatar Style: " + avatarData.avatar_type;
 
             const room = document.getElementById("room");
             const avatarFace = document.getElementById("avatarFace");
+
+            if (!room || !avatarFace) return;
 
             room.className = "room";
 

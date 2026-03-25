@@ -10,9 +10,9 @@ CORS(app)
 # DEMO USERS
 # =========================================================
 users = [
-    {"id": 1, "name": "Andriya", "avatar_style": "focused", "co2_points": 120},
-    {"id": 2, "name": "Aisha", "avatar_style": "calm", "co2_points": 90},
-    {"id": 3, "name": "Rohan", "avatar_style": "energetic", "co2_points": 110},
+    {"id": 1, "name": "Andriya", "avatar_style": "focused", "co2_points": 120, "study_seconds": 0},
+    {"id": 2, "name": "Aisha", "avatar_style": "calm", "co2_points": 90, "study_seconds": 0},
+    {"id": 3, "name": "Rohan", "avatar_style": "energetic", "co2_points": 110, "study_seconds": 0},
 ]
 
 current_user_id = 1
@@ -198,6 +198,36 @@ def get_active_group_session(group_id, task_id=None):
                 return session
     return None
 
+def get_user_group_contribution(group_id, user_id):
+    total = 0
+    for assignment in task_assignments:
+        task = find_task(assignment["task_id"])
+        if task and task["group_id"] == group_id and assignment["user_id"] == user_id:
+            total += assignment.get("points_earned", 0)
+    return total
+
+def get_group_member_leaderboard(group_id):
+    group = find_group(group_id)
+    if not group:
+        return []
+
+    result = []
+    for member in group["members"]:
+        contribution = get_user_group_contribution(group_id, member["user_id"])
+        result.append({
+            "user_id": member["user_id"],
+            "name": member["name"],
+            "role": member["role"],
+            "points": contribution
+        })
+
+    result.sort(key=lambda x: x["points"], reverse=True)
+    return result
+
+def ensure_user_has_study_seconds(user):
+    if "study_seconds" not in user:
+        user["study_seconds"] = 0
+
 # =========================================================
 # CURRENT USER SUPPORT
 # =========================================================
@@ -206,6 +236,7 @@ def get_current_user_route():
     user = get_current_user()
     if not user:
         return jsonify({"error": "Current user not found"}), 404
+    ensure_user_has_study_seconds(user)
     return jsonify(user)
 
 @app.route("/set-current-user", methods=["POST"])
@@ -219,6 +250,7 @@ def set_current_user():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
+    ensure_user_has_study_seconds(user)
     current_user_id = user_id
     return jsonify({"message": f"Current user set to {user['name']}", "user": user})
 
@@ -231,6 +263,8 @@ def avatar_data():
     if not user:
         return jsonify({"error": "Current user not found"}), 404
 
+    ensure_user_has_study_seconds(user)
+
     return jsonify({
         "name": user["name"],
         "co2_points": user["co2_points"],
@@ -238,7 +272,8 @@ def avatar_data():
         "room_state": get_room_state(user["co2_points"]),
         "avatar_type": user["avatar_style"],
         "session_active": solo_session["active"],
-        "doom_scroll_total_seconds": get_total_doom_scroll_seconds()
+        "doom_scroll_total_seconds": get_total_doom_scroll_seconds(),
+        "study_total_seconds": user["study_seconds"]
     })
 
 @app.route("/profile", methods=["GET"])
@@ -246,6 +281,8 @@ def profile():
     user = get_current_user()
     if not user:
         return jsonify({"error": "Current user not found"}), 404
+
+    ensure_user_has_study_seconds(user)
 
     return jsonify({
         "name": user["name"],
@@ -271,6 +308,11 @@ def update_profile():
     user["name"] = name
     user["avatar_style"] = avatar_type
 
+    for group in groups:
+        for member in group["members"]:
+            if member["user_id"] == user["id"]:
+                member["name"] = user["name"]
+
     return jsonify({"message": "Profile updated successfully"})
 
 @app.route("/start-session", methods=["POST"])
@@ -291,6 +333,8 @@ def end_session():
     if not user:
         return jsonify({"message": "Current user not found"}), 404
 
+    ensure_user_has_study_seconds(user)
+
     if not solo_session["active"] or not solo_session["started_at"]:
         return jsonify({"message": "No solo session is active"}), 400
 
@@ -301,14 +345,17 @@ def end_session():
 
     elapsed_minutes = elapsed_seconds / 60.0
     earned_points = study_points_from_minutes(elapsed_minutes)
+
     user["co2_points"] += earned_points
+    user["study_seconds"] += elapsed_seconds
 
     solo_session["active"] = False
     solo_session["started_at"] = None
 
     return jsonify({
         "message": "Solo study session ended",
-        "earned_points": earned_points
+        "earned_points": earned_points,
+        "study_seconds_added": elapsed_seconds
     })
 
 # =========================================================
@@ -370,6 +417,8 @@ def toggle_restricted_app():
     if not user:
         return jsonify({"message": "Current user not found"}), 404
 
+    ensure_user_has_study_seconds(user)
+
     data = request.json
     app_id = data.get("app_id")
 
@@ -418,6 +467,8 @@ def toggle_restricted_app():
 # =========================================================
 @app.route("/users", methods=["GET"])
 def get_users():
+    for user in users:
+        ensure_user_has_study_seconds(user)
     return jsonify(users)
 
 @app.route("/users/<int:user_id>", methods=["GET"])
@@ -425,6 +476,7 @@ def get_user(user_id):
     user = find_user(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
+    ensure_user_has_study_seconds(user)
     return jsonify(user)
 
 # =========================================================
@@ -437,7 +489,16 @@ def get_groups():
 @app.route("/groups/my/<int:user_id>", methods=["GET"])
 def get_my_groups(user_id):
     my_groups = get_user_groups(user_id)
-    return jsonify(my_groups)
+    result = []
+
+    for group in my_groups:
+        result.append({
+            **group,
+            "your_contribution": get_user_group_contribution(group["id"], user_id),
+            "member_count": len(group["members"])
+        })
+
+    return jsonify(result)
 
 @app.route("/groups/create", methods=["POST"])
 def create_group():
@@ -453,6 +514,8 @@ def create_group():
     leader = find_user(leader_id)
     if not leader:
         return jsonify({"error": "Leader user not found"}), 404
+
+    ensure_user_has_study_seconds(leader)
 
     new_group = {
         "id": group_id_counter,
@@ -489,6 +552,8 @@ def join_group():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
+    ensure_user_has_study_seconds(user)
+
     group = next((g for g in groups if g["join_code"] == join_code), None)
     if not group:
         return jsonify({"error": "Invalid join code"}), 404
@@ -512,7 +577,14 @@ def get_group(group_id):
     group = find_group(group_id)
     if not group:
         return jsonify({"error": "Group not found"}), 404
-    return jsonify(group)
+
+    current_contribution = get_user_group_contribution(group_id, current_user_id)
+
+    return jsonify({
+        **group,
+        "your_contribution": current_contribution,
+        "member_count": len(group["members"])
+    })
 
 @app.route("/groups/<int:group_id>/leave", methods=["POST"])
 def leave_group(group_id):
@@ -600,9 +672,12 @@ def get_group_tasks(group_id):
     result = []
 
     for task in tasks:
+        active_session = get_active_group_session(group_id, task["id"])
         result.append({
             **task,
-            "window_status": task_window_status(task)
+            "window_status": task_window_status(task),
+            "has_active_session": active_session is not None,
+            "active_session_id": active_session["id"] if active_session else None
         })
 
     return jsonify(result)
@@ -686,6 +761,7 @@ def get_assigned_tasks(user_id):
     for assignment in user_assignments:
         task = find_task(assignment["task_id"])
         if task:
+            active_session = get_active_group_session(task["group_id"], task["id"])
             task_data = {
                 "task_id": task["id"],
                 "title": task["title"],
@@ -700,10 +776,14 @@ def get_assigned_tasks(user_id):
                 "assignment_status": assignment["status"],
                 "study_minutes": assignment["study_minutes"],
                 "points_earned": assignment["points_earned"],
-                "proof_submitted": assignment["proof_submitted"]
+                "proof_submitted": assignment["proof_submitted"],
+                "can_start_now": task_window_status(task) == "Active",
+                "has_active_session": active_session is not None,
+                "active_session_id": active_session["id"] if active_session else None
             }
             result.append(task_data)
 
+    result.sort(key=lambda x: x["scheduled_start"])
     return jsonify(result)
 
 # =========================================================
@@ -856,7 +936,9 @@ def end_group_session():
 
         user = find_user(participant_user_id)
         if user:
+            ensure_user_has_study_seconds(user)
             user["co2_points"] += points
+            user["study_seconds"] += minutes * 60
 
         for assignment in task_assignments:
             if assignment["task_id"] == session["task_id"] and assignment["user_id"] == participant_user_id:
@@ -939,13 +1021,34 @@ def get_task_proofs(task_id):
 # =========================================================
 @app.route("/leaderboard", methods=["GET"])
 def leaderboard():
+    for user in users:
+        ensure_user_has_study_seconds(user)
     sorted_users = sorted(users, key=lambda x: x["co2_points"], reverse=True)
     return jsonify(sorted_users)
 
 @app.route("/group-leaderboard", methods=["GET"])
 def group_leaderboard():
-    sorted_groups = sorted(groups, key=lambda x: x["total_points"], reverse=True)
-    return jsonify(sorted_groups)
+    result = []
+
+    for group in groups:
+        result.append({
+            "id": group["id"],
+            "name": group["name"],
+            "total_points": group["total_points"],
+            "member_count": len(group["members"]),
+            "your_contribution": get_user_group_contribution(group["id"], current_user_id)
+        })
+
+    result.sort(key=lambda x: x["total_points"], reverse=True)
+    return jsonify(result)
+
+@app.route("/groups/<int:group_id>/member-leaderboard", methods=["GET"])
+def group_member_leaderboard(group_id):
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    return jsonify(get_group_member_leaderboard(group_id))
 
 # =========================================================
 # RUN
