@@ -1,15 +1,14 @@
 const API_BASE = "http://127.0.0.1:5000";
 
 let avatarData = null;
+let focusStatusData = null;
 let timerInterval = null;
-let seconds = 0;
 let toastTimeout = null;
 let restrictedAppsRefreshInterval = null;
 
 let currentUserId = 1;
 let selectedGroupId = null;
 let selectedGroupData = null;
-let activeSessionId = null;
 
 function showToast(message, type = "success") {
     const toast = document.getElementById("toast");
@@ -60,20 +59,26 @@ function toggleTheme() {
     }
 }
 
-function formatTime(secondsValue) {
-    const mins = Math.floor(secondsValue / 60);
-    const secs = secondsValue % 60;
-    const minText = mins < 10 ? "0" + mins : mins;
-    const secText = secs < 10 ? "0" + secs : secs;
-    return minText + ":" + secText;
+function formatTime(totalSeconds) {
+    const value = Math.max(0, parseInt(totalSeconds || 0));
+    const hours = Math.floor(value / 3600);
+    const minutes = Math.floor((value % 3600) / 60);
+    const seconds = value % 60;
+
+    const hh = hours < 10 ? "0" + hours : String(hours);
+    const mm = minutes < 10 ? "0" + minutes : String(minutes);
+    const ss = seconds < 10 ? "0" + seconds : String(seconds);
+
+    return `${hh}:${mm}:${ss}`;
 }
 
-function formatStudyTime(totalSeconds) {
-    const hours = Math.floor((totalSeconds || 0) / 3600);
-    const minutes = Math.floor(((totalSeconds || 0) % 3600) / 60);
-    const hourText = hours < 10 ? "0" + hours : hours;
-    const minuteText = minutes < 10 ? "0" + minutes : minutes;
-    return `${hourText}h ${minuteText}m`;
+function formatStudySummary(totalSeconds) {
+    const value = Math.max(0, parseInt(totalSeconds || 0));
+    const hours = Math.floor(value / 3600);
+    const minutes = Math.floor((value % 3600) / 60);
+    const seconds = value % 60;
+
+    return `${hours}h ${minutes}m ${seconds}s`;
 }
 
 function formatDateTime(value) {
@@ -140,41 +145,161 @@ function switchBottomPanel(panelName) {
     }
 }
 
+/* =========================
+   FOCUS STATUS + TIMER
+========================= */
+
+function stopSessionTimer() {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+}
+
+function startSessionTimer(startedAtIso) {
+    stopSessionTimer();
+
+    const timerDisplay = document.getElementById("timerDisplay");
+    if (!startedAtIso) {
+        if (timerDisplay) timerDisplay.innerText = "00:00:00";
+        return;
+    }
+
+    const render = () => {
+        const now = new Date().getTime();
+        const started = new Date(startedAtIso).getTime();
+        const elapsedSeconds = Math.max(0, Math.floor((now - started) / 1000));
+        if (timerDisplay) timerDisplay.innerText = formatTime(elapsedSeconds);
+    };
+
+    render();
+    timerInterval = setInterval(render, 1000);
+}
+
+function loadFocusStatus() {
+    return fetch(`${API_BASE}/focus-status`)
+        .then(response => response.json())
+        .then(data => {
+            focusStatusData = data;
+
+            const sessionBadge = document.getElementById("sessionBadge");
+            const sessionStatus = document.getElementById("sessionStatus");
+            const focusTypeLabel = document.getElementById("focusTypeLabel");
+            const studyTotalDisplay = document.getElementById("studyTotalDisplay");
+            const timerDisplay = document.getElementById("timerDisplay");
+
+            if (studyTotalDisplay) {
+                studyTotalDisplay.innerText = formatTime(data.study_total_seconds || 0);
+            }
+
+            if (data.active) {
+                if (sessionBadge) {
+                    sessionBadge.innerText = data.type === "group" ? "Group Session Active" : "Solo Session Active";
+                }
+
+                if (focusTypeLabel) {
+                    if (data.type === "group") {
+                        focusTypeLabel.innerText = `Studying: ${data.task_title || "Task"} • ${data.group_name || "Group"}`;
+                    } else {
+                        focusTypeLabel.innerText = "Solo study session in progress";
+                    }
+                }
+
+                if (sessionStatus) {
+                    if (data.type === "group") {
+                        sessionStatus.innerText = `You are currently in an active group task session. You can leave and rejoin anytime within the task window.`;
+                    } else {
+                        sessionStatus.innerText = `You are currently in an active solo session.`;
+                    }
+                }
+
+                startSessionTimer(data.started_at);
+            } else {
+                if (sessionBadge) sessionBadge.innerText = "No Active Session";
+                if (focusTypeLabel) focusTypeLabel.innerText = "No active focus session";
+                if (sessionStatus) sessionStatus.innerText = "No study session is active.";
+                stopSessionTimer();
+                if (timerDisplay) timerDisplay.innerText = "00:00:00";
+            }
+
+            updatePrimarySessionButtons();
+        })
+        .catch(error => {
+            console.log(error);
+        });
+}
+
+function updatePrimarySessionButtons() {
+    const startBtn = document.getElementById("startBtn");
+    const endBtn = document.getElementById("endBtn");
+
+    if (!startBtn || !endBtn || !focusStatusData) return;
+
+    if (focusStatusData.active) {
+        if (focusStatusData.type === "solo") {
+            startBtn.disabled = true;
+            endBtn.disabled = false;
+        } else {
+            startBtn.disabled = true;
+            endBtn.disabled = true;
+        }
+    } else {
+        startBtn.disabled = false;
+        endBtn.disabled = false;
+    }
+}
+
+/* =========================
+   AVATAR / PROFILE
+========================= */
+
+function applyMascotState() {
+    if (!avatarData) return;
+
+    const room = document.getElementById("room");
+    const mascotCharacter = document.getElementById("mascotCharacter");
+    const mascotMouth = document.getElementById("mascotMouth");
+
+    if (!room || !mascotCharacter || !mascotMouth) return;
+
+    room.className = "mascot-room";
+    mascotCharacter.className = "mascot";
+    mascotMouth.className = "mascot-mouth";
+
+    if (avatarData.room_state === "bright") room.classList.add("bright");
+    if (avatarData.room_state === "normal") room.classList.add("normal");
+    if (avatarData.room_state === "dim") room.classList.add("dim");
+
+    if (avatarData.avatar_type === "calm") mascotCharacter.classList.add("mascot-calm");
+    if (avatarData.avatar_type === "energetic") mascotCharacter.classList.add("mascot-energetic");
+    if (avatarData.avatar_type === "focused") mascotCharacter.classList.add("mascot-focused");
+
+    if (avatarData.mood === "happy") mascotCharacter.classList.add("mood-happy");
+    if (avatarData.mood === "neutral") mascotCharacter.classList.add("mood-neutral");
+    if (avatarData.mood === "sad") mascotCharacter.classList.add("mood-sad");
+
+    if (avatarData.mood === "happy") mascotMouth.classList.add("mouth-happy");
+    if (avatarData.mood === "neutral") mascotMouth.classList.add("mouth-neutral");
+    if (avatarData.mood === "sad") mascotMouth.classList.add("mouth-sad");
+}
+
 function loadAvatarData() {
-    fetch(`${API_BASE}/avatar-data`)
+    return fetch(`${API_BASE}/avatar-data`)
         .then(response => response.json())
         .then(data => {
             avatarData = data;
 
-            const sessionStatus = document.getElementById("sessionStatus");
-            const sessionBadge = document.getElementById("sessionBadge");
             const heroNamePill = document.getElementById("heroNamePill");
             const heroPointsPill = document.getElementById("heroPointsPill");
             const heroMoodPill = document.getElementById("heroMoodPill");
             const heroDoomPill = document.getElementById("heroDoomPill");
             const previewName = document.getElementById("previewName");
             const previewAvatar = document.getElementById("previewAvatar");
-            const studyTotalDisplay = document.getElementById("studyTotalDisplay");
-
-            if (sessionStatus) {
-                sessionStatus.innerText =
-                    data.session_active ? "A study session is currently active." : "No study session is active.";
-            }
-
-            if (sessionBadge) {
-                sessionBadge.innerText = data.session_active ? "Session Active" : "No Active Session";
-            }
 
             if (heroNamePill) heroNamePill.innerText = "Name: " + data.name;
             if (heroPointsPill) heroPointsPill.innerText = "CO₂ Points: " + data.co2_points;
             if (heroMoodPill) heroMoodPill.innerText = "Mood: " + data.mood;
-            if (heroDoomPill) {
-                heroDoomPill.innerText = "Doom Scroll: " + formatTime(data.doom_scroll_total_seconds || 0);
-            }
-
-            if (studyTotalDisplay) {
-                studyTotalDisplay.innerText = formatStudyTime(data.study_total_seconds || 0);
-            }
+            if (heroDoomPill) heroDoomPill.innerText = "Doom Scroll: " + formatTime(data.doom_scroll_total_seconds || 0);
 
             if (previewName) previewName.innerText = "Name: " + data.name;
             if (previewAvatar) previewAvatar.innerText = "Avatar Style: " + data.avatar_type;
@@ -219,8 +344,10 @@ function saveProfile() {
 
         const profileMessage = document.getElementById("profileMessage");
         if (profileMessage) profileMessage.innerText = data.message;
+
         showToast(data.message, "success");
         refreshAll();
+
         if (selectedGroupId) {
             openGroup(selectedGroupId);
         }
@@ -231,6 +358,10 @@ function saveProfile() {
     });
 }
 
+/* =========================
+   LEADERBOARDS
+========================= */
+
 function loadLeaderboard() {
     fetch(`${API_BASE}/leaderboard`)
         .then(response => response.json())
@@ -238,7 +369,7 @@ function loadLeaderboard() {
             let html = "";
 
             data.forEach((item, index) => {
-                const points = item.points !== undefined ? item.points : (item.co2_points || 0);
+                const points = item.co2_points || 0;
 
                 html += `
                     <div class="leaderboard-item">
@@ -298,6 +429,10 @@ function loadLeaderboards() {
     loadGroupLeaderboard();
 }
 
+/* =========================
+   ASSIGNED TASKS
+========================= */
+
 function loadAssignedTasks() {
     fetch(`${API_BASE}/users/${currentUserId}/assigned-tasks`)
         .then(response => response.json())
@@ -305,13 +440,23 @@ function loadAssignedTasks() {
             let html = "";
 
             data.forEach(task => {
-                const activeActionHtml = task.window_status === "Active"
-                    ? (
-                        task.has_active_session
-                            ? `<button class="secondary-btn" onclick="joinTaskSession(${task.active_session_id}, ${task.group_id})">Join Session</button>`
-                            : `<button class="primary-btn" onclick="startTaskSessionFromAssigned(${task.group_id}, ${task.task_id})">Start Session</button>`
-                    )
-                    : "";
+                let sessionButtons = "";
+
+                if (task.window_status === "Active") {
+                    if (task.user_has_active_session) {
+                        sessionButtons = `
+                            <button class="secondary-btn" onclick="leaveTaskSession(${task.user_active_session_id}, ${task.task_id}, ${task.group_id})">
+                                Leave Session
+                            </button>
+                        `;
+                    } else {
+                        sessionButtons = `
+                            <button class="primary-btn" onclick="startTaskSessionFromAssigned(${task.group_id}, ${task.task_id})">
+                                Start Session
+                            </button>
+                        `;
+                    }
+                }
 
                 html += `
                     <div class="task-item">
@@ -320,12 +465,13 @@ function loadAssignedTasks() {
                         <div class="task-meta">Category: ${escapeHtml(task.category || "-")} • Group: ${escapeHtml(task.group_name || "-")}</div>
                         <div class="task-meta">Window: ${formatDateTime(task.scheduled_start)} to ${formatDateTime(task.scheduled_end)}</div>
                         <div class="task-meta">Study Minutes: ${task.study_minutes || 0} • Points Earned: ${task.points_earned || 0}</div>
+                        <div class="task-meta">Sessions Joined: ${task.session_count || 0} • Others Active Now: ${task.active_session_count || 0}</div>
                         <div class="status-pill">Task Window: ${task.window_status || "Pending"}</div>
                         <div class="status-pill">Your Status: ${task.assignment_status || "Pending"}</div>
                         <div class="task-meta">Proof Submitted: ${task.proof_submitted ? "Yes" : "No"}</div>
 
                         <div class="task-actions">
-                            ${activeActionHtml}
+                            ${sessionButtons}
                             <button class="ghost-btn" onclick="openProofModal(${task.task_id})">Submit Proof</button>
                         </div>
                     </div>
@@ -342,6 +488,10 @@ function loadAssignedTasks() {
         });
 }
 
+/* =========================
+   RESTRICTED APPS
+========================= */
+
 function loadRestrictedApps() {
     fetch(`${API_BASE}/restricted-apps`)
         .then(response => response.json())
@@ -350,13 +500,17 @@ function loadRestrictedApps() {
             const appsDoomIndicator = document.getElementById("appsDoomIndicator");
 
             if (appsSessionIndicator) {
-                appsSessionIndicator.innerText =
-                    data.session_active ? "Study Session Active" : "No Study Session Active";
+                if (data.session_active) {
+                    appsSessionIndicator.innerText = data.session_type === "group"
+                        ? "Group Study Session Active"
+                        : "Solo Study Session Active";
+                } else {
+                    appsSessionIndicator.innerText = "No Study Session Active";
+                }
             }
 
             if (appsDoomIndicator) {
-                appsDoomIndicator.innerText =
-                    "Total Doom Scroll: " + formatTime(data.doom_scroll_total_seconds || 0);
+                appsDoomIndicator.innerText = "Total Doom Scroll: " + formatTime(data.doom_scroll_total_seconds || 0);
             }
 
             let html = "";
@@ -421,98 +575,6 @@ function stopRestrictedAppsLiveRefresh() {
     }
 }
 
-function updateTimerDisplay() {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    const minText = mins < 10 ? "0" + mins : mins;
-    const secText = secs < 10 ? "0" + secs : secs;
-    const timerDisplay = document.getElementById("timerDisplay");
-    if (timerDisplay) timerDisplay.innerText = minText + ":" + secText;
-}
-
-function startTimer() {
-    if (timerInterval) return;
-
-    timerInterval = setInterval(() => {
-        seconds++;
-        updateTimerDisplay();
-    }, 1000);
-}
-
-function stopTimer() {
-    clearInterval(timerInterval);
-    timerInterval = null;
-}
-
-function resetTimer() {
-    seconds = 0;
-    updateTimerDisplay();
-}
-
-function loadAllData() {
-    loadMyGroups();
-    loadAssignedTasks();
-    loadLeaderboards();
-
-    const groupDetails = document.getElementById("groupDetails");
-    if (groupDetails && !selectedGroupId) {
-        groupDetails.innerHTML = "Select a group to view chat and leaderboard.";
-    }
-}
-
-function refreshAll() {
-    loadAvatarData();
-    loadProfile();
-    loadLeaderboards();
-    loadAssignedTasks();
-    loadRestrictedApps();
-    loadMyGroups();
-}
-
-function startSession() {
-    fetch(`${API_BASE}/start-session`, {
-        method: "POST"
-    })
-    .then(async response => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message);
-
-        const messageBox = document.getElementById("messageBox");
-        if (messageBox) messageBox.innerText = data.message;
-
-        showToast(data.message, "success");
-        startTimer();
-        refreshAll();
-    })
-    .catch(error => {
-        showToast(error.message, "warning");
-        const messageBox = document.getElementById("messageBox");
-        if (messageBox) messageBox.innerText = error.message;
-    });
-}
-
-function endSession() {
-    fetch(`${API_BASE}/end-session`, {
-        method: "POST"
-    })
-    .then(async response => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || "Could not end session.");
-
-        const messageBox = document.getElementById("messageBox");
-        if (messageBox) messageBox.innerText = data.message;
-
-        showToast(data.message, "success");
-        stopTimer();
-        resetTimer();
-        refreshAll();
-    })
-    .catch(error => {
-        showToast(error.message || "Could not end session.", "error");
-        console.log(error);
-    });
-}
-
 function setAppLimit(appId) {
     const input = document.getElementById("appLimit" + appId);
     const limitValue = input ? input.value : 0;
@@ -554,13 +616,10 @@ function toggleRestrictedApp(appId) {
         const messageBox = document.getElementById("messageBox");
         if (messageBox) messageBox.innerText = data.message;
 
-        if (data.penalty_points && data.penalty_points > 0) {
-            showToast(data.message, "warning");
-        } else {
-            showToast(data.message, "success");
-        }
+        showToast(data.message, data.penalty_points && data.penalty_points > 0 ? "warning" : "success");
 
         refreshAll();
+        if (selectedGroupId) openGroup(selectedGroupId);
         showSection("restrictedApps");
     })
     .catch(error => {
@@ -568,6 +627,56 @@ function toggleRestrictedApp(appId) {
         if (messageBox) messageBox.innerText = error.message;
 
         showToast(error.message, "warning");
+    });
+}
+
+/* =========================
+   SOLO SESSION
+========================= */
+
+function startSession() {
+    fetch(`${API_BASE}/start-session`, {
+        method: "POST"
+    })
+    .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+
+        const messageBox = document.getElementById("messageBox");
+        if (messageBox) messageBox.innerText = data.message;
+
+        showToast(data.message, "success");
+        await refreshAll();
+    })
+    .catch(error => {
+        showToast(error.message, "warning");
+        const messageBox = document.getElementById("messageBox");
+        if (messageBox) messageBox.innerText = error.message;
+    });
+}
+
+function endSession() {
+    fetch(`${API_BASE}/end-session`, {
+        method: "POST"
+    })
+    .then(async response => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "Could not end session.");
+
+        const messageBox = document.getElementById("messageBox");
+        if (messageBox) {
+            messageBox.innerText = `${data.message} • +${data.earned_points || 0} pts`;
+        }
+
+        showToast(data.message, "success");
+        await refreshAll();
+        loadLeaderboards();
+        loadAssignedTasks();
+        if (selectedGroupId) openGroup(selectedGroupId);
+    })
+    .catch(error => {
+        showToast(error.message || "Could not end session.", "error");
+        console.log(error);
     });
 }
 
@@ -687,37 +796,50 @@ function openGroup(groupId) {
         fetch(`${API_BASE}/groups/${groupId}`).then(r => r.json()),
         fetch(`${API_BASE}/groups/${groupId}/messages`).then(r => r.json()),
         fetch(`${API_BASE}/groups/${groupId}/tasks`).then(r => r.json()),
-        fetch(`${API_BASE}/groups/${groupId}/active-session`).then(r => r.json()),
+        fetch(`${API_BASE}/groups/${groupId}/active-sessions`).then(r => r.json()),
         fetch(`${API_BASE}/groups/${groupId}/member-leaderboard`).then(r => r.json())
     ])
-    .then(([group, messages, tasks, session, memberLeaderboard]) => {
+    .then(([group, messages, tasks, activeSessions, memberLeaderboard]) => {
         selectedGroupData = group;
-        activeSessionId = session ? session.id : null;
 
         const isLeader = group.leader_id === currentUserId;
         const groupDetails = document.getElementById("groupDetails");
         if (!groupDetails) return;
 
         const tasksHtml = tasks.length
-            ? tasks.map(task => `
-                <div class="item-card">
-                    <p><strong>${escapeHtml(task.title)}</strong></p>
-                    <p>Category: ${escapeHtml(task.category || "-")}</p>
-                    <p>Description: ${escapeHtml(task.description || "-")}</p>
-                    <p>Window: ${formatDateTime(task.scheduled_start)} to ${formatDateTime(task.scheduled_end)}</p>
-                    <p>Status: ${task.window_status}</p>
-                    <div class="task-actions">
-                        ${task.window_status === "Active" && !task.has_active_session
-                            ? `<button class="primary-btn" onclick="startGroupSession(${task.id})">Start Session</button>`
-                            : ``
-                        }
-                        ${task.has_active_session
-                            ? `<button class="secondary-btn" onclick="joinActiveSession(${task.active_session_id})">Join Active Session</button>`
-                            : ``
-                        }
+            ? tasks.map(task => {
+                let actionHtml = "";
+
+                if (task.window_status === "Active") {
+                    if (task.user_has_active_session) {
+                        actionHtml = `
+                            <button class="secondary-btn" onclick="leaveTaskSession(${task.user_active_session_id}, ${task.id}, ${group.id})">
+                                Leave Session
+                            </button>
+                        `;
+                    } else {
+                        actionHtml = `
+                            <button class="primary-btn" onclick="startGroupTaskSession(${task.id}, ${group.id})">
+                                Start Session
+                            </button>
+                        `;
+                    }
+                }
+
+                return `
+                    <div class="item-card">
+                        <p><strong>${escapeHtml(task.title)}</strong></p>
+                        <p>Category: ${escapeHtml(task.category || "-")}</p>
+                        <p>Description: ${escapeHtml(task.description || "-")}</p>
+                        <p>Window: ${formatDateTime(task.scheduled_start)} to ${formatDateTime(task.scheduled_end)}</p>
+                        <p>Status: ${task.window_status}</p>
+                        <p>Members Active Now: ${task.active_session_count || 0}</p>
+                        <div class="task-actions">
+                            ${actionHtml}
+                        </div>
                     </div>
-                </div>
-            `).join("")
+                `;
+            }).join("")
             : "<p>No tasks yet.</p>";
 
         const memberLeaderboardHtml = memberLeaderboard.length
@@ -735,36 +857,20 @@ function openGroup(groupId) {
             `).join("")
             : "<p>No member contribution data yet.</p>";
 
-        const activeSessionHtml = session
-            ? `
-                <div class="item-card">
-                    <h4>Active Group Session</h4>
-                    <p><strong>Task:</strong> ${escapeHtml(session.task_title)}</p>
-                    <p><strong>Started By:</strong> ${escapeHtml(session.started_by_name)}</p>
-                    <p><strong>Status:</strong> ${escapeHtml(session.status)}</p>
-                    <p><strong>Participants:</strong> ${session.participants.map(p => escapeHtml(p.user_name)).join(", ")}</p>
-                    ${
-                        isLeader || session.started_by === currentUserId
-                            ? `
-                                <div class="form-block">
-                                    <p>Enter minutes studied by each participant before ending:</p>
-                                    ${session.participants.map(p => `
-                                        <label>${escapeHtml(p.user_name)}</label>
-                                        <input type="number" id="minutes_${p.user_id}" min="0" placeholder="Minutes studied">
-                                    `).join("")}
-                                    <button class="secondary-btn" onclick="endGroupSession(${session.id}, ${session.task_id})">End Session</button>
-                                </div>
-                            `
-                            : `<p>Leader or starter can end session.</p>`
-                    }
+        const activeSessionsHtml = activeSessions.length
+            ? activeSessions.map(session => `
+                <div class="leaderboard-item">
+                    <div class="leaderboard-rank">
+                        <div class="rank-badge">•</div>
+                        <div>
+                            <div>${escapeHtml(session.user_name)}</div>
+                            <div class="score-text">${escapeHtml(session.task_title)}</div>
+                        </div>
+                    </div>
+                    <span class="score-text">Started: ${formatDateTime(session.start_time)}</span>
                 </div>
-            `
-            : `
-                <div class="item-card">
-                    <h4>Active Group Session</h4>
-                    <p>No active group session.</p>
-                </div>
-            `;
+            `).join("")
+            : "<p>No active study sessions in this group right now.</p>";
 
         groupDetails.innerHTML = `
             <div class="group-detail-stack">
@@ -805,17 +911,17 @@ function openGroup(groupId) {
                     ${
                         isLeader
                             ? `
-                            <div class="form-block">
-                                <h4>Create Task</h4>
-                                <input type="text" id="taskTitleInput" placeholder="Task title">
-                                <input type="text" id="taskCategoryInput" placeholder="Category">
-                                <textarea id="taskDescriptionInput" rows="3" placeholder="Description"></textarea>
-                                <label>Start</label>
-                                <input type="datetime-local" id="taskStartInput">
-                                <label>End</label>
-                                <input type="datetime-local" id="taskEndInput">
-                                <button class="primary-btn" onclick="createTaskForGroup()">Create Group Task</button>
-                            </div>
+                                <div class="form-block">
+                                    <h4>Create Task</h4>
+                                    <input type="text" id="taskTitleInput" placeholder="Task title">
+                                    <input type="text" id="taskCategoryInput" placeholder="Category">
+                                    <textarea id="taskDescriptionInput" rows="3" placeholder="Description"></textarea>
+                                    <label>Start</label>
+                                    <input type="datetime-local" id="taskStartInput">
+                                    <label>End</label>
+                                    <input type="datetime-local" id="taskEndInput">
+                                    <button class="primary-btn" onclick="createTaskForGroup()">Create Group Task</button>
+                                </div>
                             `
                             : `<p>Only the leader can create tasks.</p>`
                     }
@@ -823,7 +929,10 @@ function openGroup(groupId) {
                     <div>${tasksHtml}</div>
                 </div>
 
-                ${activeSessionHtml}
+                <div class="item-card">
+                    <h3>Active Study Sessions</h3>
+                    <div>${activeSessionsHtml}</div>
+                </div>
             </div>
         `;
     })
@@ -853,10 +962,9 @@ function leaveGroup(groupId) {
         if (selectedGroupId === groupId) {
             selectedGroupId = null;
             selectedGroupData = null;
-            activeSessionId = null;
 
             const groupDetails = document.getElementById("groupDetails");
-            if (groupDetails) groupDetails.innerHTML = "Select a group to view chat and leaderboard.";
+            if (groupDetails) groupDetails.innerHTML = "Select a group to view chat, tasks, active sessions, and leaderboard.";
         }
 
         loadMyGroups();
@@ -952,69 +1060,7 @@ function createTaskForGroup() {
     });
 }
 
-function startGroupSession(taskId) {
-    if (!selectedGroupId) {
-        showToast("Select a group first", "warning");
-        return;
-    }
-
-    fetch(`${API_BASE}/group-sessions/start`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            user_id: currentUserId,
-            group_id: selectedGroupId,
-            task_id: taskId
-        })
-    })
-    .then(response => response.json().then(data => ({ ok: response.ok, data })))
-    .then(result => {
-        if (!result.ok) {
-            showToast(result.data.error || "Could not start session", "warning");
-            return;
-        }
-
-        showToast(result.data.message, "success");
-        activeSessionId = result.data.session.id;
-        openGroup(selectedGroupId);
-        loadAssignedTasks();
-        loadLeaderboards();
-    })
-    .catch(error => {
-        console.log(error);
-        showToast("Could not start session", "error");
-    });
-}
-
-function joinActiveSession(sessionId) {
-    fetch(`${API_BASE}/group-sessions/join`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            user_id: currentUserId,
-            session_id: sessionId
-        })
-    })
-    .then(response => response.json().then(data => ({ ok: response.ok, data })))
-    .then(result => {
-        if (!result.ok) {
-            showToast(result.data.error || "Could not join session", "warning");
-            return;
-        }
-
-        showToast(result.data.message, "success");
-        activeSessionId = sessionId;
-        openGroup(selectedGroupId);
-        loadAssignedTasks();
-    })
-    .catch(error => {
-        console.log(error);
-        showToast("Could not join session", "error");
-    });
-}
-
-function startTaskSessionFromAssigned(groupId, taskId) {
-    selectedGroupId = groupId;
+function startGroupTaskSession(taskId, groupId) {
     fetch(`${API_BASE}/group-sessions/start`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -1025,18 +1071,43 @@ function startTaskSessionFromAssigned(groupId, taskId) {
         })
     })
     .then(response => response.json().then(data => ({ ok: response.ok, data })))
-    .then(result => {
+    .then(async result => {
         if (!result.ok) {
             showToast(result.data.error || "Could not start session", "warning");
             return;
         }
 
         showToast(result.data.message, "success");
-        activeSessionId = result.data.session.id;
+        await refreshAll();
+        openGroup(groupId);
+    })
+    .catch(error => {
+        console.log(error);
+        showToast("Could not start session", "error");
+    });
+}
+
+function startTaskSessionFromAssigned(groupId, taskId) {
+    fetch(`${API_BASE}/group-sessions/start`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            user_id: currentUserId,
+            group_id: groupId,
+            task_id: taskId
+        })
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, data })))
+    .then(async result => {
+        if (!result.ok) {
+            showToast(result.data.error || "Could not start session", "warning");
+            return;
+        }
+
+        showToast(result.data.message, "success");
+        await refreshAll();
         switchBottomPanel("groups");
         openGroup(groupId);
-        loadAssignedTasks();
-        loadLeaderboards();
     })
     .catch(error => {
         console.log(error);
@@ -1045,8 +1116,6 @@ function startTaskSessionFromAssigned(groupId, taskId) {
 }
 
 function joinTaskSession(sessionId, groupId) {
-    selectedGroupId = groupId;
-
     fetch(`${API_BASE}/group-sessions/join`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -1056,17 +1125,16 @@ function joinTaskSession(sessionId, groupId) {
         })
     })
     .then(response => response.json().then(data => ({ ok: response.ok, data })))
-    .then(result => {
+    .then(async result => {
         if (!result.ok) {
             showToast(result.data.error || "Could not join session", "warning");
             return;
         }
 
         showToast(result.data.message, "success");
-        activeSessionId = sessionId;
+        await refreshAll();
         switchBottomPanel("groups");
         openGroup(groupId);
-        loadAssignedTasks();
     })
     .catch(error => {
         console.log(error);
@@ -1074,54 +1142,39 @@ function joinTaskSession(sessionId, groupId) {
     });
 }
 
-function endGroupSession(sessionId, taskId) {
-    if (!selectedGroupData) {
-        showToast("No group selected", "warning");
-        return;
-    }
-
-    const participantMinutes = [];
-    const currentActiveParticipants = document.querySelectorAll('[id^="minutes_"]');
-
-    currentActiveParticipants.forEach(input => {
-        const userId = parseInt(input.id.replace("minutes_", ""));
-        const minutes = parseInt(input.value || "0");
-        participantMinutes.push({
-            user_id: userId,
-            minutes: isNaN(minutes) ? 0 : minutes
-        });
-    });
-
-    fetch(`${API_BASE}/group-sessions/end`, {
+function leaveTaskSession(sessionId, taskId, groupId) {
+    fetch(`${API_BASE}/group-sessions/leave`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-            session_id: sessionId,
             user_id: currentUserId,
-            participant_minutes: participantMinutes
+            session_id: sessionId,
+            task_id: taskId
         })
     })
     .then(response => response.json().then(data => ({ ok: response.ok, data })))
-    .then(result => {
+    .then(async result => {
         if (!result.ok) {
-            showToast(result.data.error || "Could not end session", "warning");
+            showToast(result.data.error || "Could not leave session", "warning");
             return;
         }
 
-        showToast(result.data.message, "success");
-        activeSessionId = null;
+        const earned = result.data.earned_points || 0;
+        showToast(`${result.data.message} • +${earned} pts`, "success");
 
-        openGroup(selectedGroupId);
-        loadAssignedTasks();
+        await refreshAll();
         loadLeaderboards();
-
-        openProofModal(taskId);
+        if (groupId) openGroup(groupId);
     })
     .catch(error => {
         console.log(error);
-        showToast("Could not end session", "error");
+        showToast("Could not leave session", "error");
     });
 }
+
+/* =========================
+   PROOF
+========================= */
 
 function openProofModal(taskId) {
     const proofTaskId = document.getElementById("proofTaskId");
@@ -1174,14 +1227,32 @@ function submitProof() {
         showToast(result.data.message, "success");
         closeProofModal();
         loadAssignedTasks();
-        loadLeaderboards();
-        if (selectedGroupId) {
-            openGroup(selectedGroupId);
-        }
+        if (selectedGroupId) openGroup(selectedGroupId);
     })
     .catch(error => {
         console.log(error);
         showToast("Proof submission failed", "error");
+    });
+}
+
+/* =========================
+   REFRESH
+========================= */
+
+function refreshAll() {
+    return Promise.all([
+        loadAvatarData(),
+        loadProfile(),
+        loadFocusStatus()
+    ])
+    .then(() => {
+        loadAssignedTasks();
+        loadLeaderboards();
+        loadRestrictedApps();
+        loadMyGroups();
+    })
+    .catch(error => {
+        console.log(error);
     });
 }
 
@@ -1191,7 +1262,6 @@ function submitProof() {
 
 document.addEventListener("DOMContentLoaded", function() {
     initTheme();
-    updateTimerDisplay();
     switchBottomPanel("groups");
 
     const menuBtn = document.getElementById("menuBtn");
@@ -1239,7 +1309,6 @@ document.addEventListener("DOMContentLoaded", function() {
         })
         .then(() => {
             refreshAll();
-            loadAllData();
         })
         .catch(error => {
             console.log(error);
@@ -1249,7 +1318,6 @@ document.addEventListener("DOMContentLoaded", function() {
             currentUserId = parseInt(currentUserSelect.value);
             selectedGroupId = null;
             selectedGroupData = null;
-            activeSessionId = null;
 
             fetch(`${API_BASE}/set-current-user`, {
                 method: "POST",
@@ -1260,9 +1328,10 @@ document.addEventListener("DOMContentLoaded", function() {
             })
             .then(() => {
                 const groupDetails = document.getElementById("groupDetails");
-                if (groupDetails) groupDetails.innerHTML = "Select a group to view chat and leaderboard.";
+                if (groupDetails) {
+                    groupDetails.innerHTML = "Select a group to view chat, tasks, active sessions, and leaderboard.";
+                }
                 refreshAll();
-                loadAllData();
                 switchBottomPanel("groups");
             })
             .catch(error => {
@@ -1272,7 +1341,6 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     } else {
         refreshAll();
-        loadAllData();
     }
 
     if (menuBtn && dropdownMenu) {
@@ -1319,7 +1387,12 @@ document.addEventListener("DOMContentLoaded", function() {
     if (startBtn) startBtn.addEventListener("click", startSession);
     if (endBtn) endBtn.addEventListener("click", endSession);
     if (saveProfileBtn) saveProfileBtn.addEventListener("click", saveProfile);
-    if (refreshBtn) refreshBtn.addEventListener("click", refreshAll);
+    if (refreshBtn) {
+        refreshBtn.addEventListener("click", function() {
+            refreshAll();
+            if (selectedGroupId) openGroup(selectedGroupId);
+        });
+    }
 
     if (co2Button && avatarModal) {
         co2Button.addEventListener("click", function() {
@@ -1335,52 +1408,7 @@ document.addEventListener("DOMContentLoaded", function() {
             if (roomInfo) roomInfo.innerText = "Room State: " + avatarData.room_state;
             if (avatarTypeInfo) avatarTypeInfo.innerText = "Avatar Style: " + avatarData.avatar_type;
 
-            const room = document.getElementById("room");
-            const avatarFace = document.getElementById("avatarFace");
-
-            if (!room || !avatarFace) return;
-
-            room.className = "room";
-
-            if (avatarData.avatar_type === "calm") {
-                if (avatarData.co2_points >= 70) {
-                    avatarFace.innerText = "🙂";
-                    room.classList.add("bright");
-                } else if (avatarData.co2_points >= 30) {
-                    avatarFace.innerText = "😐";
-                    room.classList.add("normal");
-                } else {
-                    avatarFace.innerText = "😔";
-                    room.classList.add("dim");
-                }
-            }
-
-            if (avatarData.avatar_type === "energetic") {
-                if (avatarData.co2_points >= 70) {
-                    avatarFace.innerText = "😄";
-                    room.classList.add("bright");
-                } else if (avatarData.co2_points >= 30) {
-                    avatarFace.innerText = "🙂";
-                    room.classList.add("normal");
-                } else {
-                    avatarFace.innerText = "😞";
-                    room.classList.add("dim");
-                }
-            }
-
-            if (avatarData.avatar_type === "focused") {
-                if (avatarData.co2_points >= 70) {
-                    avatarFace.innerText = "😎";
-                    room.classList.add("bright");
-                } else if (avatarData.co2_points >= 30) {
-                    avatarFace.innerText = "😐";
-                    room.classList.add("normal");
-                } else {
-                    avatarFace.innerText = "😣";
-                    room.classList.add("dim");
-                }
-            }
-
+            applyMascotState();
             avatarModal.style.display = "flex";
         });
     }

@@ -22,7 +22,8 @@ current_user_id = 1
 # =========================================================
 solo_session = {
     "active": False,
-    "started_at": None
+    "started_at": None,
+    "user_id": None
 }
 
 restricted_apps = [
@@ -85,6 +86,10 @@ def find_user(user_id):
 def get_current_user():
     return find_user(current_user_id)
 
+def ensure_user_has_study_seconds(user):
+    if user and "study_seconds" not in user:
+        user["study_seconds"] = 0
+
 def find_group(group_id):
     return next((g for g in groups if g["id"] == group_id), None)
 
@@ -141,46 +146,8 @@ def get_app_used_seconds(app_item):
         used += int((now_dt() - opened_dt).total_seconds())
     return used
 
-def close_open_apps_and_apply_penalty():
-    user = get_current_user()
-    total_penalty_points = 0
-
-    for app_item in restricted_apps:
-        if app_item["is_open"] and app_item["opened_at"]:
-            opened_dt = datetime.fromisoformat(app_item["opened_at"])
-            elapsed_seconds = int((now_dt() - opened_dt).total_seconds())
-            if elapsed_seconds < 0:
-                elapsed_seconds = 0
-
-            app_item["used_seconds"] += elapsed_seconds
-            app_item["is_open"] = False
-            app_item["opened_at"] = None
-
-            penalty_minutes = elapsed_seconds / 60.0
-            penalty_points = doom_points_from_minutes(penalty_minutes)
-            total_penalty_points += penalty_points
-
-    if total_penalty_points > 0 and user:
-        user["co2_points"] -= total_penalty_points
-        apply_group_penalty_if_active_window(user["id"], total_penalty_points)
-
-    return total_penalty_points
-
-def apply_group_penalty_if_active_window(user_id, penalty_points):
-    user_groups = get_user_groups(user_id)
-
-    for group in user_groups:
-        has_active_task = False
-        for task in group_tasks:
-            if task["group_id"] == group["id"] and task_window_status(task) == "Active":
-                has_active_task = True
-                break
-
-        if has_active_task:
-            group["total_points"] = max(0, group["total_points"] - penalty_points)
-
 def task_window_status(task):
-    now = datetime.now()
+    now = now_dt()
     start = datetime.fromisoformat(task["scheduled_start"])
     end = datetime.fromisoformat(task["scheduled_end"])
 
@@ -191,12 +158,67 @@ def task_window_status(task):
     else:
         return "Expired"
 
-def get_active_group_session(group_id, task_id=None):
+def get_active_group_session_for_user(user_id):
     for session in group_sessions:
-        if session["group_id"] == group_id and session["status"] == "active":
-            if task_id is None or session["task_id"] == task_id:
-                return session
+        if session["status"] == "active" and session["user_id"] == user_id:
+            return session
     return None
+
+def get_active_group_session_for_user_and_task(user_id, task_id):
+    for session in group_sessions:
+        if session["status"] == "active" and session["user_id"] == user_id and session["task_id"] == task_id:
+            return session
+    return None
+
+def get_active_group_sessions_for_group(group_id):
+    return [s for s in group_sessions if s["status"] == "active" and s["group_id"] == group_id]
+
+def get_active_group_sessions_for_task(task_id):
+    return [s for s in group_sessions if s["status"] == "active" and s["task_id"] == task_id]
+
+def get_user_focus_state(user_id):
+    if solo_session["active"] and solo_session["user_id"] == user_id and solo_session["started_at"]:
+        return {
+            "active": True,
+            "type": "solo",
+            "started_at": solo_session["started_at"],
+            "group_id": None,
+            "group_name": None,
+            "task_id": None,
+            "task_title": None,
+            "session_id": None
+        }
+
+    group_session = get_active_group_session_for_user(user_id)
+    if group_session:
+        return {
+            "active": True,
+            "type": "group",
+            "started_at": group_session["start_time"],
+            "group_id": group_session["group_id"],
+            "group_name": group_session["group_name"],
+            "task_id": group_session["task_id"],
+            "task_title": group_session["task_title"],
+            "session_id": group_session["id"]
+        }
+
+    return {
+        "active": False,
+        "type": None,
+        "started_at": None,
+        "group_id": None,
+        "group_name": None,
+        "task_id": None,
+        "task_title": None,
+        "session_id": None
+    }
+
+def calculate_elapsed_seconds(started_at_iso):
+    if not started_at_iso:
+        return 0
+    started_dt = datetime.fromisoformat(started_at_iso)
+    elapsed_seconds = int((now_dt() - started_dt).total_seconds())
+    return max(0, elapsed_seconds)
 
 def get_user_group_contribution(group_id, user_id):
     total = 0
@@ -224,9 +246,60 @@ def get_group_member_leaderboard(group_id):
     result.sort(key=lambda x: x["points"], reverse=True)
     return result
 
-def ensure_user_has_study_seconds(user):
-    if "study_seconds" not in user:
-        user["study_seconds"] = 0
+def get_assignment(user_id, task_id):
+    return next(
+        (a for a in task_assignments if a["user_id"] == user_id and a["task_id"] == task_id),
+        None
+    )
+
+def get_active_assignments_for_user_in_active_task_windows(user_id):
+    active_assignments = []
+    for assignment in task_assignments:
+        if assignment["user_id"] != user_id:
+            continue
+        task = find_task(assignment["task_id"])
+        if task and task_window_status(task) == "Active":
+            active_assignments.append((assignment, task))
+    return active_assignments
+
+def apply_group_penalty_if_active_window(user_id, penalty_points):
+    active_assignments = get_active_assignments_for_user_in_active_task_windows(user_id)
+
+    touched_groups = set()
+
+    for assignment, task in active_assignments:
+        assignment["points_earned"] -= penalty_points
+
+        if task["group_id"] not in touched_groups:
+            group = find_group(task["group_id"])
+            if group:
+                group["total_points"] -= penalty_points
+            touched_groups.add(task["group_id"])
+
+def close_open_apps_and_apply_penalty():
+    user = get_current_user()
+    total_penalty_points = 0
+
+    for app_item in restricted_apps:
+        if app_item["is_open"] and app_item["opened_at"]:
+            opened_dt = datetime.fromisoformat(app_item["opened_at"])
+            elapsed_seconds = int((now_dt() - opened_dt).total_seconds())
+            if elapsed_seconds < 0:
+                elapsed_seconds = 0
+
+            app_item["used_seconds"] += elapsed_seconds
+            app_item["is_open"] = False
+            app_item["opened_at"] = None
+
+            penalty_minutes = elapsed_seconds / 60.0
+            penalty_points = doom_points_from_minutes(penalty_minutes)
+            total_penalty_points += penalty_points
+
+    if total_penalty_points > 0 and user:
+        user["co2_points"] -= total_penalty_points
+        apply_group_penalty_if_active_window(user["id"], total_penalty_points)
+
+    return total_penalty_points
 
 # =========================================================
 # CURRENT USER SUPPORT
@@ -255,6 +328,36 @@ def set_current_user():
     return jsonify({"message": f"Current user set to {user['name']}", "user": user})
 
 # =========================================================
+# FOCUS STATUS
+# =========================================================
+@app.route("/focus-status", methods=["GET"])
+def focus_status():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Current user not found"}), 404
+
+    ensure_user_has_study_seconds(user)
+    focus_state = get_user_focus_state(user["id"])
+
+    live_seconds = 0
+    if focus_state["active"] and focus_state["started_at"]:
+        live_seconds = calculate_elapsed_seconds(focus_state["started_at"])
+
+    return jsonify({
+        "user_id": user["id"],
+        "study_total_seconds": user["study_seconds"],
+        "active": focus_state["active"],
+        "type": focus_state["type"],
+        "started_at": focus_state["started_at"],
+        "group_id": focus_state["group_id"],
+        "group_name": focus_state["group_name"],
+        "task_id": focus_state["task_id"],
+        "task_title": focus_state["task_title"],
+        "session_id": focus_state["session_id"],
+        "live_elapsed_seconds": live_seconds
+    })
+
+# =========================================================
 # AVATAR / PROFILE / SOLO SESSION
 # =========================================================
 @app.route("/avatar-data", methods=["GET"])
@@ -264,6 +367,7 @@ def avatar_data():
         return jsonify({"error": "Current user not found"}), 404
 
     ensure_user_has_study_seconds(user)
+    focus_state = get_user_focus_state(user["id"])
 
     return jsonify({
         "name": user["name"],
@@ -271,7 +375,9 @@ def avatar_data():
         "mood": get_avatar_mood(user["co2_points"]),
         "room_state": get_room_state(user["co2_points"]),
         "avatar_type": user["avatar_style"],
-        "session_active": solo_session["active"],
+        "session_active": focus_state["active"],
+        "session_type": focus_state["type"],
+        "active_session_started_at": focus_state["started_at"],
         "doom_scroll_total_seconds": get_total_doom_scroll_seconds(),
         "study_total_seconds": user["study_seconds"]
     })
@@ -313,17 +419,27 @@ def update_profile():
             if member["user_id"] == user["id"]:
                 member["name"] = user["name"]
 
+    for assignment in task_assignments:
+        if assignment["user_id"] == user["id"]:
+            assignment["user_name"] = user["name"]
+
     return jsonify({"message": "Profile updated successfully"})
 
 @app.route("/start-session", methods=["POST"])
 def start_session():
-    if solo_session["active"]:
-        return jsonify({"message": "A solo session is already active"}), 400
+    user = get_current_user()
+    if not user:
+        return jsonify({"message": "Current user not found"}), 404
+
+    focus_state = get_user_focus_state(user["id"])
+    if focus_state["active"]:
+        return jsonify({"message": "A focus session is already active"}), 400
 
     close_open_apps_and_apply_penalty()
 
     solo_session["active"] = True
     solo_session["started_at"] = now_str()
+    solo_session["user_id"] = user["id"]
 
     return jsonify({"message": "Solo study session started"})
 
@@ -335,14 +451,10 @@ def end_session():
 
     ensure_user_has_study_seconds(user)
 
-    if not solo_session["active"] or not solo_session["started_at"]:
+    if not solo_session["active"] or not solo_session["started_at"] or solo_session["user_id"] != user["id"]:
         return jsonify({"message": "No solo session is active"}), 400
 
-    started_at = datetime.fromisoformat(solo_session["started_at"])
-    elapsed_seconds = int((now_dt() - started_at).total_seconds())
-    if elapsed_seconds < 0:
-        elapsed_seconds = 0
-
+    elapsed_seconds = calculate_elapsed_seconds(solo_session["started_at"])
     elapsed_minutes = elapsed_seconds / 60.0
     earned_points = study_points_from_minutes(elapsed_minutes)
 
@@ -351,6 +463,7 @@ def end_session():
 
     solo_session["active"] = False
     solo_session["started_at"] = None
+    solo_session["user_id"] = None
 
     return jsonify({
         "message": "Solo study session ended",
@@ -363,6 +476,9 @@ def end_session():
 # =========================================================
 @app.route("/restricted-apps", methods=["GET"])
 def get_restricted_apps():
+    user = get_current_user()
+    focus_state = get_user_focus_state(user["id"]) if user else {"active": False, "type": None}
+
     apps_payload = []
 
     for app_item in restricted_apps:
@@ -385,7 +501,8 @@ def get_restricted_apps():
         })
 
     return jsonify({
-        "session_active": solo_session["active"],
+        "session_active": focus_state["active"],
+        "session_type": focus_state["type"],
         "doom_scroll_total_seconds": get_total_doom_scroll_seconds(),
         "apps": apps_payload
     })
@@ -427,10 +544,7 @@ def toggle_restricted_app():
         return jsonify({"message": "App not found"}), 404
 
     if app_item["is_open"]:
-        opened_dt = datetime.fromisoformat(app_item["opened_at"])
-        elapsed_seconds = int((now_dt() - opened_dt).total_seconds())
-        if elapsed_seconds < 0:
-            elapsed_seconds = 0
+        elapsed_seconds = calculate_elapsed_seconds(app_item["opened_at"])
 
         app_item["used_seconds"] += elapsed_seconds
         app_item["is_open"] = False
@@ -438,6 +552,7 @@ def toggle_restricted_app():
 
         penalty_minutes = elapsed_seconds / 60.0
         penalty_points = doom_points_from_minutes(penalty_minutes)
+
         user["co2_points"] -= penalty_points
         apply_group_penalty_if_active_window(user["id"], penalty_points)
 
@@ -446,7 +561,8 @@ def toggle_restricted_app():
             "penalty_points": penalty_points
         })
 
-    if solo_session["active"]:
+    focus_state = get_user_focus_state(user["id"])
+    if focus_state["active"]:
         return jsonify({"message": "Cannot open restricted apps during an active study session"}), 400
 
     used_seconds = get_app_used_seconds(app_item)
@@ -598,6 +714,10 @@ def leave_group(group_id):
     if not user_in_group(user_id, group):
         return jsonify({"error": "User is not a member of this group"}), 400
 
+    active_session = get_active_group_session_for_user(user_id)
+    if active_session and active_session["group_id"] == group_id:
+        return jsonify({"error": "Leave the active study session first"}), 400
+
     if group["leader_id"] == user_id:
         if len(group["members"]) > 1:
             return jsonify({
@@ -672,12 +792,16 @@ def get_group_tasks(group_id):
     result = []
 
     for task in tasks:
-        active_session = get_active_group_session(group_id, task["id"])
+        active_sessions = get_active_group_sessions_for_task(task["id"])
+        user_active_session = get_active_group_session_for_user_and_task(current_user_id, task["id"])
+
         result.append({
             **task,
             "window_status": task_window_status(task),
-            "has_active_session": active_session is not None,
-            "active_session_id": active_session["id"] if active_session else None
+            "active_session_count": len(active_sessions),
+            "has_active_sessions": len(active_sessions) > 0,
+            "user_has_active_session": user_active_session is not None,
+            "user_active_session_id": user_active_session["id"] if user_active_session else None
         })
 
     return jsonify(result)
@@ -739,7 +863,8 @@ def create_group_task(group_id):
             "status": "Pending",
             "study_minutes": 0,
             "points_earned": 0,
-            "proof_submitted": False
+            "proof_submitted": False,
+            "session_count": 0
         })
 
     task_id_counter += 1
@@ -761,7 +886,9 @@ def get_assigned_tasks(user_id):
     for assignment in user_assignments:
         task = find_task(assignment["task_id"])
         if task:
-            active_session = get_active_group_session(task["group_id"], task["id"])
+            active_sessions = get_active_group_sessions_for_task(task["id"])
+            user_active_session = get_active_group_session_for_user_and_task(user_id, task["id"])
+
             task_data = {
                 "task_id": task["id"],
                 "title": task["title"],
@@ -777,9 +904,12 @@ def get_assigned_tasks(user_id):
                 "study_minutes": assignment["study_minutes"],
                 "points_earned": assignment["points_earned"],
                 "proof_submitted": assignment["proof_submitted"],
+                "session_count": assignment.get("session_count", 0),
                 "can_start_now": task_window_status(task) == "Active",
-                "has_active_session": active_session is not None,
-                "active_session_id": active_session["id"] if active_session else None
+                "active_session_count": len(active_sessions),
+                "has_active_sessions": len(active_sessions) > 0,
+                "user_has_active_session": user_active_session is not None,
+                "user_active_session_id": user_active_session["id"] if user_active_session else None
             }
             result.append(task_data)
 
@@ -812,11 +942,19 @@ def start_group_session():
     if task_window_status(task) != "Active":
         return jsonify({"error": "Task window is not active right now"}), 400
 
-    existing = get_active_group_session(group_id, task_id)
-    if existing:
-        return jsonify({"error": "A group session is already active for this task"}), 400
+    current_focus = get_user_focus_state(user_id)
+    if current_focus["active"]:
+        return jsonify({"error": "User already has an active focus session"}), 400
+
+    existing_user_task_session = get_active_group_session_for_user_and_task(user_id, task_id)
+    if existing_user_task_session:
+        return jsonify({"error": "You already have an active session for this task"}), 400
+
+    if user_id == current_user_id:
+        close_open_apps_and_apply_penalty()
 
     user = find_user(user_id)
+    assignment = get_assignment(user_id, task_id)
 
     new_session = {
         "id": session_id_counter,
@@ -824,40 +962,25 @@ def start_group_session():
         "group_name": group["name"],
         "task_id": task_id,
         "task_title": task["title"],
-        "started_by": user_id,
-        "started_by_name": user["name"] if user else "Unknown",
+        "user_id": user_id,
+        "user_name": user["name"] if user else "Unknown",
         "status": "active",
         "start_time": now_str(),
-        "end_time": None,
-        "participants": [
-            {
-                "user_id": user_id,
-                "user_name": user["name"] if user else "Unknown",
-                "joined_at": now_str(),
-                "left_at": None
-            }
-        ]
+        "end_time": None
     }
 
     group_sessions.append(new_session)
 
-    for assignment in task_assignments:
-        if assignment["task_id"] == task_id and assignment["user_id"] == user_id:
-            assignment["status"] = "In Progress"
+    if assignment:
+        assignment["status"] = "In Progress"
+        assignment["session_count"] = assignment.get("session_count", 0) + 1
 
     session_id_counter += 1
 
     return jsonify({
-        "message": "Group session started",
+        "message": "Study session started",
         "session": new_session
     })
-
-@app.route("/groups/<int:group_id>/active-session", methods=["GET"])
-def get_group_active_session(group_id):
-    session = get_active_group_session(group_id)
-    if not session:
-        return jsonify(None)
-    return jsonify(session)
 
 @app.route("/group-sessions/join", methods=["POST"])
 def join_group_session():
@@ -865,93 +988,214 @@ def join_group_session():
     user_id = data.get("user_id")
     session_id = data.get("session_id")
 
-    session = next((s for s in group_sessions if s["id"] == session_id), None)
-    if not session:
+    target_session = next((s for s in group_sessions if s["id"] == session_id), None)
+    if not target_session:
         return jsonify({"error": "Session not found"}), 404
 
-    if session["status"] != "active":
+    if target_session["status"] != "active":
         return jsonify({"error": "Session is not active"}), 400
 
-    group = find_group(session["group_id"])
-    if not group or not user_in_group(user_id, group):
-        return jsonify({"error": "User is not part of this group"}), 403
+    return start_group_session_internal(
+        user_id=user_id,
+        group_id=target_session["group_id"],
+        task_id=target_session["task_id"]
+    )
 
-    already_joined = any(p["user_id"] == user_id for p in session["participants"])
-    if already_joined:
-        return jsonify({"error": "User already joined this session"}), 400
+def start_group_session_internal(user_id, group_id, task_id):
+    global session_id_counter
 
-    user = find_user(user_id)
-
-    session["participants"].append({
-        "user_id": user_id,
-        "user_name": user["name"] if user else "Unknown",
-        "joined_at": now_str(),
-        "left_at": None
-    })
-
-    for assignment in task_assignments:
-        if assignment["task_id"] == session["task_id"] and assignment["user_id"] == user_id:
-            assignment["status"] = "In Progress"
-
-    return jsonify({
-        "message": "Joined group session",
-        "session": session
-    })
-
-@app.route("/group-sessions/end", methods=["POST"])
-def end_group_session():
-    data = request.json
-    session_id = data.get("session_id")
-    user_id = data.get("user_id")
-    participant_minutes = data.get("participant_minutes", [])
-
-    session = next((s for s in group_sessions if s["id"] == session_id), None)
-    if not session:
-        return jsonify({"error": "Session not found"}), 404
-
-    if session["status"] != "active":
-        return jsonify({"error": "Session already ended"}), 400
-
-    group = find_group(session["group_id"])
+    group = find_group(group_id)
     if not group:
         return jsonify({"error": "Group not found"}), 404
 
-    if user_id != group["leader_id"] and user_id != session["started_by"]:
-        return jsonify({"error": "Only leader or starter can end the session"}), 403
+    if not user_in_group(user_id, group):
+        return jsonify({"error": "User is not part of this group"}), 403
+
+    task = find_task(task_id)
+    if not task or task["group_id"] != group_id:
+        return jsonify({"error": "Task not found for this group"}), 404
+
+    if task_window_status(task) != "Active":
+        return jsonify({"error": "Task window is not active right now"}), 400
+
+    current_focus = get_user_focus_state(user_id)
+    if current_focus["active"]:
+        return jsonify({"error": "User already has an active focus session"}), 400
+
+    existing_user_task_session = get_active_group_session_for_user_and_task(user_id, task_id)
+    if existing_user_task_session:
+        return jsonify({"error": "You already have an active session for this task"}), 400
+
+    if user_id == current_user_id:
+        close_open_apps_and_apply_penalty()
+
+    user = find_user(user_id)
+    assignment = get_assignment(user_id, task_id)
+
+    new_session = {
+        "id": session_id_counter,
+        "group_id": group_id,
+        "group_name": group["name"],
+        "task_id": task_id,
+        "task_title": task["title"],
+        "user_id": user_id,
+        "user_name": user["name"] if user else "Unknown",
+        "status": "active",
+        "start_time": now_str(),
+        "end_time": None
+    }
+
+    group_sessions.append(new_session)
+
+    if assignment:
+        assignment["status"] = "In Progress"
+        assignment["session_count"] = assignment.get("session_count", 0) + 1
+
+    session_id_counter += 1
+
+    return jsonify({
+        "message": "Study session started",
+        "session": new_session
+    })
+
+@app.route("/group-sessions/leave", methods=["POST"])
+def leave_group_session():
+    data = request.json
+    user_id = data.get("user_id")
+    session_id = data.get("session_id")
+    task_id = data.get("task_id")
+
+    session = None
+
+    if session_id:
+        session = next(
+            (s for s in group_sessions if s["id"] == session_id and s["status"] == "active"),
+            None
+        )
+    elif task_id:
+        session = get_active_group_session_for_user_and_task(user_id, task_id)
+    else:
+        session = get_active_group_session_for_user(user_id)
+
+    if not session:
+        return jsonify({"error": "No active session found"}), 404
+
+    if session["user_id"] != user_id:
+        return jsonify({"error": "You can only leave your own session"}), 403
+
+    task = find_task(session["task_id"])
+    group = find_group(session["group_id"])
+    user = find_user(user_id)
+    assignment = get_assignment(user_id, session["task_id"])
+
+    if not task or not group or not user:
+        return jsonify({"error": "Related task, group, or user not found"}), 404
+
+    elapsed_seconds = calculate_elapsed_seconds(session["start_time"])
+    elapsed_minutes = elapsed_seconds / 60.0
+    earned_points = study_points_from_minutes(elapsed_minutes)
 
     session["status"] = "ended"
     session["end_time"] = now_str()
 
-    total_group_points = 0
+    ensure_user_has_study_seconds(user)
+    user["co2_points"] += earned_points
+    user["study_seconds"] += elapsed_seconds
 
-    for entry in participant_minutes:
-        participant_user_id = entry.get("user_id")
-        minutes = int(entry.get("minutes", 0))
+    group["total_points"] += earned_points
 
-        if minutes < 0:
-            minutes = 0
-
-        points = study_points_from_minutes(minutes)
-        total_group_points += points
-
-        user = find_user(participant_user_id)
-        if user:
-            ensure_user_has_study_seconds(user)
-            user["co2_points"] += points
-            user["study_seconds"] += minutes * 60
-
-        for assignment in task_assignments:
-            if assignment["task_id"] == session["task_id"] and assignment["user_id"] == participant_user_id:
-                assignment["study_minutes"] += minutes
-                assignment["points_earned"] += points
-
-    group["total_points"] += total_group_points
+    if assignment:
+        assignment["study_minutes"] += int(elapsed_minutes)
+        assignment["points_earned"] += earned_points
+        if task_window_status(task) == "Expired":
+            assignment["status"] = "Completed" if assignment["proof_submitted"] else "Pending Review"
+        else:
+            assignment["status"] = "In Progress"
 
     return jsonify({
-        "message": "Group session ended. Now submit proof for each participant.",
+        "message": "Study session ended",
         "session": session,
-        "group_points_added": total_group_points
+        "earned_points": earned_points,
+        "study_seconds_added": elapsed_seconds
     })
+
+@app.route("/group-sessions/end", methods=["POST"])
+def end_group_session_compat():
+    data = request.json
+    user_id = data.get("user_id")
+    session_id = data.get("session_id")
+    task_id = data.get("task_id")
+
+    session = None
+
+    if session_id:
+        session = next(
+            (s for s in group_sessions if s["id"] == session_id and s["status"] == "active"),
+            None
+        )
+    elif task_id:
+        session = get_active_group_session_for_user_and_task(user_id, task_id)
+    else:
+        session = get_active_group_session_for_user(user_id)
+
+    if not session:
+        return jsonify({"error": "No active session found"}), 404
+
+    if session["user_id"] != user_id:
+        return jsonify({"error": "You can only end your own session"}), 403
+
+    task = find_task(session["task_id"])
+    group = find_group(session["group_id"])
+    user = find_user(user_id)
+    assignment = get_assignment(user_id, session["task_id"])
+
+    if not task or not group or not user:
+        return jsonify({"error": "Related task, group, or user not found"}), 404
+
+    elapsed_seconds = calculate_elapsed_seconds(session["start_time"])
+    elapsed_minutes = elapsed_seconds / 60.0
+    earned_points = study_points_from_minutes(elapsed_minutes)
+
+    session["status"] = "ended"
+    session["end_time"] = now_str()
+
+    ensure_user_has_study_seconds(user)
+    user["co2_points"] += earned_points
+    user["study_seconds"] += elapsed_seconds
+
+    group["total_points"] += earned_points
+
+    if assignment:
+        assignment["study_minutes"] += int(elapsed_minutes)
+        assignment["points_earned"] += earned_points
+        if task_window_status(task) == "Expired":
+            assignment["status"] = "Completed" if assignment["proof_submitted"] else "Pending Review"
+        else:
+            assignment["status"] = "In Progress"
+
+    return jsonify({
+        "message": "Study session ended",
+        "session": session,
+        "earned_points": earned_points,
+        "study_seconds_added": elapsed_seconds
+    })
+
+@app.route("/groups/<int:group_id>/active-session", methods=["GET"])
+def get_group_active_session(group_id):
+    sessions = get_active_group_sessions_for_group(group_id)
+    if not sessions:
+        return jsonify(None)
+
+    user_session = next((s for s in sessions if s["user_id"] == current_user_id), None)
+    if user_session:
+        return jsonify(user_session)
+
+    return jsonify(sessions[0])
+
+@app.route("/groups/<int:group_id>/active-sessions", methods=["GET"])
+def get_group_active_sessions(group_id):
+    sessions = get_active_group_sessions_for_group(group_id)
+    return jsonify(sessions)
 
 # =========================================================
 # SESSION PROOF / COMPLETION FLOW
@@ -970,10 +1214,7 @@ def submit_proof(task_id):
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
-    assignment = next(
-        (a for a in task_assignments if a["task_id"] == task_id and a["user_id"] == user_id),
-        None
-    )
+    assignment = get_assignment(user_id, task_id)
 
     if not assignment:
         return jsonify({"error": "Task assignment not found"}), 404
@@ -1004,7 +1245,10 @@ def submit_proof(task_id):
     proof_id_counter += 1
 
     assignment["proof_submitted"] = True
-    assignment["status"] = "Completed"
+
+    active_session = get_active_group_session_for_user_and_task(user_id, task_id)
+    if not active_session:
+        assignment["status"] = "Completed"
 
     return jsonify({
         "message": "Proof submitted successfully",

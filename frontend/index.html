@@ -30,6 +30,7 @@
     </div>
 
     <div class="page">
+        <!-- DASHBOARD -->
         <div id="dashboardSection" class="section active">
             <div class="home-layout">
                 <div class="home-topbar-card">
@@ -43,6 +44,7 @@
                     </div>
 
                     <div class="home-topbar-right">
+                        <div class="pill" id="heroNamePill">Name: User</div>
                         <div class="pill" id="heroPointsPill">CO₂ Points: 0</div>
                         <div class="pill" id="heroMoodPill">Mood: neutral</div>
                         <div class="pill" id="heroDoomPill">Doom Scroll: 00:00</div>
@@ -51,19 +53,19 @@
 
                 <div class="study-focus-card">
                     <div class="study-focus-head">
-                        <div class="study-focus-mini" id="heroNamePill">Name: User</div>
+                        <div class="study-focus-mini" id="focusTypeLabel">No active focus session</div>
                         <span class="status-pill" id="sessionBadge">No Active Session</span>
                     </div>
 
                     <div class="study-focus-center">
                         <div class="study-time-label">Time studied</div>
-                        <div class="study-time-value" id="studyTotalDisplay">00h 00m</div>
+                        <div class="study-time-value" id="studyTotalDisplay">00:00:00</div>
                         <div class="study-time-subtext" id="sessionStatus">No study session is active.</div>
                     </div>
 
                     <div class="timer-box">
-                        <div class="timer-label">Solo session timer</div>
-                        <div class="timer" id="timerDisplay">00:00</div>
+                        <div class="timer-label">Current session timer</div>
+                        <div class="timer" id="timerDisplay">00:00:00</div>
                     </div>
 
                     <div class="action-buttons center-actions">
@@ -80,7 +82,7 @@
                         <div>
                             <h2>Assigned Tasks</h2>
                             <p class="muted section-subtext">
-                                Tasks created by the leaders of the groups you are part of will appear here.
+                                Start and leave study sessions as many times as needed within the task window.
                             </p>
                         </div>
                     </div>
@@ -121,7 +123,7 @@
                             <div class="card-title-row">
                                 <h3>Selected Group</h3>
                             </div>
-                            <div id="groupDetails">Select a group to view chat and leaderboard.</div>
+                            <div id="groupDetails">Select a group to view chat, tasks, active sessions, and leaderboard.</div>
                         </div>
                     </div>
                 </div>
@@ -146,6 +148,7 @@
             </div>
         </div>
 
+        <!-- PROFILE -->
         <div id="profileSection" class="section">
             <div class="profile-page">
                 <div class="profile-card">
@@ -179,12 +182,16 @@
             </div>
         </div>
 
+        <!-- RESTRICTED APPS -->
         <div id="restrictedAppsSection" class="section">
             <div class="apps-page">
                 <div class="apps-card">
                     <div class="apps-head">
                         <h2>Restricted Apps</h2>
-                        <p>Apps can only be opened when no study session is active. Each app has its own usage limit. Doomscrolling reduces your individual CO₂ and, during an active task window, also reduces the related group contribution.</p>
+                        <p>
+                            Apps can only be opened when no study session is active. If you doom scroll during active task windows,
+                            your individual CO₂ points and your task/group contribution will reduce.
+                        </p>
                     </div>
 
                     <div class="session-indicator" id="appsSessionIndicator">Checking session...</div>
@@ -196,6 +203,7 @@
         </div>
     </div>
 
+    <!-- PROOF MODAL -->
     <div id="proofModal" class="modal hidden">
         <div class="modal-content">
             <h3>Submit Session Proof</h3>
@@ -217,17 +225,52 @@
         </div>
     </div>
 
+    <!-- AVATAR MODAL -->
     <div class="modal" id="avatarModal">
-        <div class="modal-content">
+        <div class="modal-content mascot-modal-content">
             <span class="close-btn" id="closeModal">&times;</span>
             <h2>Your Avatar Room</h2>
-            <div class="room" id="room">
-                <span id="avatarFace">🙂</span>
+
+            <div class="mascot-room" id="room">
+                <div class="room-glow"></div>
+
+                <div class="mascot-wrap" id="mascotWrap">
+                    <div class="mascot-shadow"></div>
+
+                    <div class="mascot mascot-focused" id="mascotCharacter">
+                        <div class="mascot-head">
+                            <div class="mascot-hair"></div>
+                            <div class="mascot-face">
+                                <div class="mascot-eyes">
+                                    <span class="eye left-eye"></span>
+                                    <span class="eye right-eye"></span>
+                                </div>
+                                <div class="mascot-mouth" id="mascotMouth"></div>
+                                <div class="mascot-cheeks">
+                                    <span class="cheek"></span>
+                                    <span class="cheek"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mascot-body">
+                            <div class="mascot-neck"></div>
+                            <div class="mascot-torso"></div>
+                            <div class="mascot-arms">
+                                <span class="arm left-arm"></span>
+                                <span class="arm right-arm"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="info" id="pointsInfo"></div>
-            <div class="info" id="moodInfo"></div>
-            <div class="info" id="roomInfo"></div>
-            <div class="info" id="avatarTypeInfo"></div>
+
+            <div class="avatar-stats">
+                <div class="info" id="pointsInfo"></div>
+                <div class="info" id="moodInfo"></div>
+                <div class="info" id="roomInfo"></div>
+                <div class="info" id="avatarTypeInfo"></div>
+            </div>
         </div>
     </div>
 
