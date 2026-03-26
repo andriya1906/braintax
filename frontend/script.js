@@ -72,6 +72,12 @@ function formatTime(totalSeconds) {
     return `${hh}:${mm}:${ss}`;
 }
 
+function formatMinutes(totalMinutes) {
+    const value = Number(totalMinutes || 0);
+    if (!Number.isFinite(value)) return "0";
+    return value % 1 === 0 ? String(value) : value.toFixed(2);
+}
+
 function formatDateTime(value) {
     if (!value) return "-";
     const date = new Date(value);
@@ -243,7 +249,7 @@ function updatePrimarySessionButtons() {
         }
     } else {
         startBtn.disabled = false;
-        endBtn.disabled = false;
+        endBtn.disabled = true;
     }
 }
 
@@ -369,7 +375,7 @@ function loadAvatarData() {
 }
 
 function loadProfile() {
-    fetch(`${API_BASE}/profile`)
+    return fetch(`${API_BASE}/profile`)
         .then(response => response.json())
         .then(data => {
             const profile = data.avatar_profile || {};
@@ -482,7 +488,7 @@ function loadLeaderboard() {
             });
 
             const leaderboardList = document.getElementById("leaderboardList");
-            if (leaderboardList) leaderboardList.innerHTML = html || "<p>No leaderboard data.</p>";
+            if (leaderboardList) leaderboardList.innerHTML = html || "<p>No leaderboard data yet.</p>";
         })
         .catch(error => {
             console.log(error);
@@ -496,27 +502,22 @@ function loadGroupLeaderboard() {
             let html = "";
 
             data.forEach((item, index) => {
-                const groupName = item.name || "Group";
-                const points = item.total_points || 0;
-                const yourContribution = item.your_contribution || 0;
-                const memberCount = item.member_count || 0;
-
                 html += `
                     <div class="leaderboard-item">
                         <div class="leaderboard-rank">
                             <div class="rank-badge">${index + 1}</div>
                             <div>
-                                <div>${escapeHtml(groupName)}</div>
-                                <div class="score-text">Members: ${memberCount} • Your contribution: ${yourContribution} pts</div>
+                                <div>${escapeHtml(item.name)}</div>
+                                <div class="score-text">Members: ${item.member_count || 0}</div>
                             </div>
                         </div>
-                        <span class="score-text">${points} pts</span>
+                        <span class="score-text">${item.total_points || 0} pts</span>
                     </div>
                 `;
             });
 
             const groupLeaderboardList = document.getElementById("groupLeaderboardList");
-            if (groupLeaderboardList) groupLeaderboardList.innerHTML = html || "<p>No groups yet.</p>";
+            if (groupLeaderboardList) groupLeaderboardList.innerHTML = html || "<p>No group leaderboard data yet.</p>";
         })
         .catch(error => {
             console.log(error);
@@ -532,53 +533,58 @@ function loadLeaderboards() {
    ASSIGNED TASKS
 ========================= */
 
+function renderAssignedTaskCard(task) {
+    let sessionButtons = "";
+
+    if (task.window_status === "Active") {
+        if (task.user_has_active_session) {
+            sessionButtons = `
+                <button class="secondary-btn" onclick="leaveTaskSession(${task.user_active_session_id}, ${task.task_id}, ${task.group_id})">
+                    Leave Session
+                </button>
+            `;
+        } else {
+            sessionButtons = `
+                <button class="primary-btn" onclick="startTaskSessionFromAssigned(${task.group_id}, ${task.task_id})">
+                    Start Session
+                </button>
+            `;
+        }
+    }
+
+    return `
+        <div class="task-item">
+            <div class="task-title">${escapeHtml(task.title)}</div>
+            <div class="task-meta">Created by: ${escapeHtml(task.created_by_name || "-")}</div>
+            <div class="task-meta">Category: ${escapeHtml(task.category || "-")} • Group: ${escapeHtml(task.group_name || "-")}</div>
+            <div class="task-meta">Window: ${formatDateTime(task.scheduled_start)} to ${formatDateTime(task.scheduled_end)}</div>
+            <div class="task-meta">Your Study Minutes: ${formatMinutes(task.study_minutes || 0)} • Points Earned: ${task.points_earned || 0}</div>
+            <div class="task-meta">Sessions Joined: ${task.session_count || 0} • Others Active Now: ${task.active_session_count || 0}</div>
+            <div class="task-meta">Task Total Study Minutes: ${formatMinutes(task.task_total_study_minutes || 0)} • Task Sessions: ${task.task_total_sessions || 0}</div>
+            <div class="status-pill">Task Window: ${task.window_status || "Pending"}</div>
+            <div class="status-pill">Your Status: ${task.assignment_status || "Pending"}</div>
+            <div class="task-meta">Proof Submitted: ${task.proof_submitted ? "Yes" : "No"}</div>
+            <div class="task-actions">
+                ${sessionButtons}
+                <button class="ghost-btn" onclick="openProofModal(${task.task_id})">Submit Proof</button>
+            </div>
+        </div>
+    `;
+}
+
 function loadAssignedTasks() {
     fetch(`${API_BASE}/users/${currentUserId}/assigned-tasks`)
         .then(response => response.json())
         .then(data => {
-            let html = "";
-
-            data.forEach(task => {
-                let sessionButtons = "";
-
-                if (task.window_status === "Active") {
-                    if (task.user_has_active_session) {
-                        sessionButtons = `
-                            <button class="secondary-btn" onclick="leaveTaskSession(${task.user_active_session_id}, ${task.task_id}, ${task.group_id})">
-                                Leave Session
-                            </button>
-                        `;
-                    } else {
-                        sessionButtons = `
-                            <button class="primary-btn" onclick="startTaskSessionFromAssigned(${task.group_id}, ${task.task_id})">
-                                Start Session
-                            </button>
-                        `;
-                    }
-                }
-
-                html += `
-                    <div class="task-item">
-                        <div class="task-title">${escapeHtml(task.title)}</div>
-                        <div class="task-meta">Created by: ${escapeHtml(task.created_by_name || "-")}</div>
-                        <div class="task-meta">Category: ${escapeHtml(task.category || "-")} • Group: ${escapeHtml(task.group_name || "-")}</div>
-                        <div class="task-meta">Window: ${formatDateTime(task.scheduled_start)} to ${formatDateTime(task.scheduled_end)}</div>
-                        <div class="task-meta">Study Minutes: ${task.study_minutes || 0} • Points Earned: ${task.points_earned || 0}</div>
-                        <div class="task-meta">Sessions Joined: ${task.session_count || 0} • Others Active Now: ${task.active_session_count || 0}</div>
-                        <div class="status-pill">Task Window: ${task.window_status || "Pending"}</div>
-                        <div class="status-pill">Your Status: ${task.assignment_status || "Pending"}</div>
-                        <div class="task-meta">Proof Submitted: ${task.proof_submitted ? "Yes" : "No"}</div>
-
-                        <div class="task-actions">
-                            ${sessionButtons}
-                            <button class="ghost-btn" onclick="openProofModal(${task.task_id})">Submit Proof</button>
-                        </div>
-                    </div>
-                `;
-            });
-
             const tasksList = document.getElementById("tasksList");
-            if (tasksList) tasksList.innerHTML = html || "<p>No assigned tasks yet.</p>";
+            if (!tasksList) return;
+
+            if (!data.length) {
+                tasksList.innerHTML = "<p>No assigned tasks yet.</p>";
+                return;
+            }
+
+            tasksList.innerHTML = data.map(renderAssignedTaskCard).join("");
         })
         .catch(error => {
             const tasksList = document.getElementById("tasksList");
@@ -649,7 +655,7 @@ function loadRestrictedApps() {
             });
 
             const appsList = document.getElementById("appsList");
-            if (appsList) appsList.innerHTML = html;
+            if (appsList) appsList.innerHTML = html || "<p>No restricted apps configured.</p>";
         })
         .catch(error => {
             console.log(error);
@@ -690,13 +696,13 @@ function setAppLimit(appId) {
     })
     .then(async response => {
         const data = await response.json();
-        if (!response.ok) throw new Error(data.message);
+        if (!response.ok) throw new Error(data.message || "Could not update limit.");
 
         showToast(data.message, "success");
         refreshAll();
     })
     .catch(error => {
-        showToast(error.message, "warning");
+        showToast(error.message || "Could not update limit.", "warning");
     });
 }
 
@@ -710,7 +716,7 @@ function toggleRestrictedApp(appId) {
     })
     .then(async response => {
         const data = await response.json();
-        if (!response.ok) throw new Error(data.message);
+        if (!response.ok) throw new Error(data.message || "Could not update app state.");
 
         const messageBox = document.getElementById("messageBox");
         if (messageBox) messageBox.innerText = data.message;
@@ -739,7 +745,7 @@ function startSession() {
     })
     .then(async response => {
         const data = await response.json();
-        if (!response.ok) throw new Error(data.message);
+        if (!response.ok) throw new Error(data.message || "Could not start session.");
 
         const messageBox = document.getElementById("messageBox");
         if (messageBox) messageBox.innerText = data.message;
@@ -774,20 +780,21 @@ function endSession() {
         if (selectedGroupId) openGroup(selectedGroupId);
     })
     .catch(error => {
-        showToast(error.message || "Could not end session.", "error");
-        console.log(error);
+        showToast(error.message, "warning");
+        const messageBox = document.getElementById("messageBox");
+        if (messageBox) messageBox.innerText = error.message;
     });
 }
 
 /* =========================
-   GROUP FEATURES
+   GROUPS
 ========================= */
 
 function createGroup() {
     const name = document.getElementById("groupNameInput")?.value.trim();
 
     if (!name) {
-        showToast("Enter a group name", "warning");
+        showToast("Enter group name", "warning");
         return;
     }
 
@@ -887,6 +894,36 @@ function loadMyGroups() {
         });
 }
 
+function renderTaskAnalyticsBlock(analytics) {
+    if (!analytics) {
+        return `<div class="task-meta">No analytics yet.</div>`;
+    }
+
+    const membersHtml = analytics.member_breakdown && analytics.member_breakdown.length
+        ? analytics.member_breakdown.map(member => `
+            <div class="leaderboard-item">
+                <div class="leaderboard-rank">
+                    <div class="rank-badge">•</div>
+                    <div>
+                        <div>${escapeHtml(member.user_name)}</div>
+                        <div class="score-text">${escapeHtml(member.status || "Pending")}</div>
+                    </div>
+                </div>
+                <span class="score-text">${formatMinutes(member.study_minutes || 0)} min • ${member.points_earned || 0} pts</span>
+            </div>
+        `).join("")
+        : "<p>No member analytics yet.</p>";
+
+    return `
+        <div class="task-meta">Task Total Study Minutes: ${formatMinutes(analytics.total_study_minutes || 0)}</div>
+        <div class="task-meta">Task Total Sessions: ${analytics.total_sessions || 0}</div>
+        <div class="task-meta">Task Total Points: ${analytics.total_points || 0}</div>
+        <div style="margin-top: 10px;">
+            ${membersHtml}
+        </div>
+    `;
+}
+
 function openGroup(groupId) {
     selectedGroupId = groupId;
     switchBottomPanel("groups");
@@ -916,6 +953,24 @@ function openGroup(groupId) {
                                 Leave Session
                             </button>
                         `;
+                    } else if ((task.active_session_count || 0) > 0) {
+                        const firstJoinableSession = (activeSessions || []).find(session => session.task_id === task.id);
+                        if (firstJoinableSession) {
+                            actionHtml = `
+                                <button class="ghost-btn" onclick="joinTaskSession(${firstJoinableSession.id}, ${group.id})">
+                                    Join Live Session
+                                </button>
+                                <button class="primary-btn" onclick="startGroupTaskSession(${task.id}, ${group.id})">
+                                    Start Your Session
+                                </button>
+                            `;
+                        } else {
+                            actionHtml = `
+                                <button class="primary-btn" onclick="startGroupTaskSession(${task.id}, ${group.id})">
+                                    Start Session
+                                </button>
+                            `;
+                        }
                     } else {
                         actionHtml = `
                             <button class="primary-btn" onclick="startGroupTaskSession(${task.id}, ${group.id})">
@@ -935,6 +990,10 @@ function openGroup(groupId) {
                         <p>Members Active Now: ${task.active_session_count || 0}</p>
                         <div class="task-actions">
                             ${actionHtml}
+                            <button class="ghost-btn" onclick="openProofModal(${task.id})">Submit Proof</button>
+                        </div>
+                        <div style="margin-top: 12px;">
+                            ${renderTaskAnalyticsBlock(task.analytics)}
                         </div>
                     </div>
                 `;
@@ -1052,20 +1111,17 @@ function leaveGroup(groupId) {
     .then(response => response.json().then(data => ({ ok: response.ok, data })))
     .then(result => {
         if (!result.ok) {
-            showToast(result.data.error || "Could not leave group", "warning");
+            showToast(result.data.error || "Failed to leave group", "warning");
             return;
         }
 
         showToast(result.data.message, "success");
+        selectedGroupId = null;
+        selectedGroupData = null;
 
-        if (selectedGroupId === groupId) {
-            selectedGroupId = null;
-            selectedGroupData = null;
-
-            const groupDetails = document.getElementById("groupDetails");
-            if (groupDetails) {
-                groupDetails.innerHTML = "Select a group to view chat, tasks, active sessions, and leaderboard.";
-            }
+        const groupDetails = document.getElementById("groupDetails");
+        if (groupDetails) {
+            groupDetails.innerHTML = "Select a group to view chat, tasks, active sessions, and leaderboard.";
         }
 
         loadMyGroups();
@@ -1074,7 +1130,7 @@ function leaveGroup(groupId) {
     })
     .catch(error => {
         console.log(error);
-        showToast("Could not leave group", "error");
+        showToast("Failed to leave group", "error");
     });
 }
 
@@ -1160,6 +1216,10 @@ function createTaskForGroup() {
         showToast("Failed to create task", "error");
     });
 }
+
+/* =========================
+   GROUP TASK SESSIONS
+========================= */
 
 function startGroupTaskSession(taskId, groupId) {
     fetch(`${API_BASE}/group-sessions/start`, {
@@ -1265,6 +1325,7 @@ function leaveTaskSession(sessionId, taskId, groupId) {
 
         await refreshAll();
         loadLeaderboards();
+        loadAssignedTasks();
         if (groupId) openGroup(groupId);
     })
     .catch(error => {

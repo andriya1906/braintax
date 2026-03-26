@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 
 app = Flask(__name__)
@@ -108,10 +108,16 @@ task_assignments = []
 group_sessions = []
 session_proofs = []
 
+# new polished analytics stores
+study_history = []
+task_session_history = []
+
 group_id_counter = 1
 task_id_counter = 1
 session_id_counter = 1
 proof_id_counter = 1
+history_id_counter = 1
+task_history_id_counter = 1
 
 # =========================================================
 # HELPERS
@@ -120,7 +126,21 @@ def now_dt():
     return datetime.now()
 
 def now_str():
-    return datetime.now().isoformat()
+    return now_dt().isoformat()
+
+def parse_iso(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+def date_key_from_iso(value):
+    dt = parse_iso(value)
+    if not dt:
+        return None
+    return dt.date().isoformat()
 
 def find_user(user_id):
     return next((u for u in users if u["id"] == user_id), None)
@@ -237,30 +257,33 @@ def penalize_consistency(user, amount):
     if user["consistency_score"] < 0:
         user["consistency_score"] = 0
 
+def get_app_used_seconds(app_item):
+    used = app_item["used_seconds"]
+    if app_item["is_open"] and app_item["opened_at"]:
+        opened_dt = parse_iso(app_item["opened_at"])
+        if opened_dt:
+            used += int((now_dt() - opened_dt).total_seconds())
+    return max(0, used)
+
 def get_total_doom_scroll_seconds():
     total = 0
     for app_item in restricted_apps:
         total += get_app_used_seconds(app_item)
     return total
 
-def get_app_used_seconds(app_item):
-    used = app_item["used_seconds"]
-    if app_item["is_open"] and app_item["opened_at"]:
-        opened_dt = datetime.fromisoformat(app_item["opened_at"])
-        used += int((now_dt() - opened_dt).total_seconds())
-    return used
-
 def task_window_status(task):
     now = now_dt()
-    start = datetime.fromisoformat(task["scheduled_start"])
-    end = datetime.fromisoformat(task["scheduled_end"])
+    start = parse_iso(task["scheduled_start"])
+    end = parse_iso(task["scheduled_end"])
+
+    if not start or not end:
+        return "Pending"
 
     if now < start:
         return "Pending"
     elif start <= now <= end:
         return "Active"
-    else:
-        return "Expired"
+    return "Expired"
 
 def get_active_group_session_for_user(user_id):
     for session in group_sessions:
@@ -318,9 +341,9 @@ def get_user_focus_state(user_id):
     }
 
 def calculate_elapsed_seconds(started_at_iso):
-    if not started_at_iso:
+    started_dt = parse_iso(started_at_iso)
+    if not started_dt:
         return 0
-    started_dt = datetime.fromisoformat(started_at_iso)
     elapsed_seconds = int((now_dt() - started_dt).total_seconds())
     return max(0, elapsed_seconds)
 
@@ -351,10 +374,7 @@ def get_group_member_leaderboard(group_id):
     return result
 
 def get_assignment(user_id, task_id):
-    return next(
-        (a for a in task_assignments if a["user_id"] == user_id and a["task_id"] == task_id),
-        None
-    )
+    return next((a for a in task_assignments if a["user_id"] == user_id and a["task_id"] == task_id), None)
 
 def get_active_assignments_for_user_in_active_task_windows(user_id):
     active_assignments = []
@@ -368,7 +388,6 @@ def get_active_assignments_for_user_in_active_task_windows(user_id):
 
 def apply_group_penalty_if_active_window(user_id, penalty_points):
     active_assignments = get_active_assignments_for_user_in_active_task_windows(user_id)
-
     touched_groups = set()
 
     for assignment, task in active_assignments:
@@ -380,6 +399,59 @@ def apply_group_penalty_if_active_window(user_id, penalty_points):
                 group["total_points"] -= penalty_points
             touched_groups.add(task["group_id"])
 
+def record_study_history(user_id, session_type, seconds, points, started_at, ended_at,
+                         group_id=None, group_name=None, task_id=None, task_title=None, source="manual"):
+    global history_id_counter
+
+    user = find_user(user_id)
+    history_item = {
+        "id": history_id_counter,
+        "user_id": user_id,
+        "user_name": user["name"] if user else "Unknown",
+        "session_type": session_type,
+        "seconds": max(0, int(seconds)),
+        "minutes": round(max(0, int(seconds)) / 60, 2),
+        "points": points,
+        "group_id": group_id,
+        "group_name": group_name,
+        "task_id": task_id,
+        "task_title": task_title,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "date": date_key_from_iso(ended_at) or date_key_from_iso(started_at),
+        "source": source
+    }
+    study_history.append(history_item)
+    history_id_counter += 1
+    return history_item
+
+def record_task_session_history(user_id, group_id, task_id, session_id, seconds, points, started_at, ended_at):
+    global task_history_id_counter
+
+    user = find_user(user_id)
+    group = find_group(group_id)
+    task = find_task(task_id)
+
+    item = {
+        "id": task_history_id_counter,
+        "session_id": session_id,
+        "user_id": user_id,
+        "user_name": user["name"] if user else "Unknown",
+        "group_id": group_id,
+        "group_name": group["name"] if group else "Unknown Group",
+        "task_id": task_id,
+        "task_title": task["title"] if task else "Unknown Task",
+        "seconds": max(0, int(seconds)),
+        "minutes": round(max(0, int(seconds)) / 60, 2),
+        "points": points,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "date": date_key_from_iso(ended_at) or date_key_from_iso(started_at)
+    }
+    task_session_history.append(item)
+    task_history_id_counter += 1
+    return item
+
 def close_open_apps_and_apply_penalty():
     user = get_current_user()
     total_penalty_points = 0
@@ -387,7 +459,12 @@ def close_open_apps_and_apply_penalty():
 
     for app_item in restricted_apps:
         if app_item["is_open"] and app_item["opened_at"]:
-            opened_dt = datetime.fromisoformat(app_item["opened_at"])
+            opened_dt = parse_iso(app_item["opened_at"])
+            if not opened_dt:
+                app_item["is_open"] = False
+                app_item["opened_at"] = None
+                continue
+
             elapsed_seconds = int((now_dt() - opened_dt).total_seconds())
             if elapsed_seconds < 0:
                 elapsed_seconds = 0
@@ -411,6 +488,107 @@ def close_open_apps_and_apply_penalty():
 
     return total_penalty_points
 
+def get_user_recent_history(user_id, limit=10):
+    items = [h for h in study_history if h["user_id"] == user_id]
+    items.sort(key=lambda x: x["ended_at"] or x["started_at"] or "", reverse=True)
+    return items[:limit]
+
+def get_summary_range(days, user_id=None):
+    end_day = now_dt().date()
+    start_day = end_day - timedelta(days=days - 1)
+
+    totals = {}
+    for i in range(days):
+        day = start_day + timedelta(days=i)
+        key = day.isoformat()
+        totals[key] = {
+            "date": key,
+            "study_seconds": 0,
+            "study_minutes": 0,
+            "points": 0,
+            "session_count": 0
+        }
+
+    for item in study_history:
+        if user_id is not None and item["user_id"] != user_id:
+            continue
+
+        item_date = item.get("date")
+        if not item_date or item_date not in totals:
+            continue
+
+        totals[item_date]["study_seconds"] += item["seconds"]
+        totals[item_date]["points"] += item["points"]
+        totals[item_date]["session_count"] += 1
+
+    result = []
+    for key in sorted(totals.keys()):
+        row = totals[key]
+        row["study_minutes"] = round(row["study_seconds"] / 60, 2)
+        result.append(row)
+
+    return result
+
+def get_user_today_seconds(user_id):
+    today = now_dt().date().isoformat()
+    total = 0
+    for item in study_history:
+        if item["user_id"] == user_id and item.get("date") == today:
+            total += item["seconds"]
+    return total
+
+def get_user_week_seconds(user_id):
+    total = 0
+    for row in get_summary_range(7, user_id=user_id):
+        total += row["study_seconds"]
+    return total
+
+def get_task_analytics(task_id):
+    task = find_task(task_id)
+    if not task:
+        return None
+
+    assignments = [a for a in task_assignments if a["task_id"] == task_id]
+    histories = [h for h in task_session_history if h["task_id"] == task_id]
+
+    total_seconds = sum(h["seconds"] for h in histories)
+    total_points = sum(h["points"] for h in histories)
+    total_sessions = len(histories)
+
+    member_breakdown = []
+    for assignment in assignments:
+        member_histories = [h for h in histories if h["user_id"] == assignment["user_id"]]
+        member_seconds = sum(h["seconds"] for h in member_histories)
+        member_points = sum(h["points"] for h in member_histories)
+
+        member_breakdown.append({
+            "user_id": assignment["user_id"],
+            "user_name": assignment.get("user_name", "Unknown"),
+            "status": assignment.get("status", "Pending"),
+            "study_minutes": round(member_seconds / 60, 2),
+            "study_seconds": member_seconds,
+            "points_earned": member_points,
+            "proof_submitted": assignment.get("proof_submitted", False),
+            "session_count": len(member_histories)
+        })
+
+    member_breakdown.sort(key=lambda x: x["points_earned"], reverse=True)
+
+    return {
+        "task_id": task["id"],
+        "title": task["title"],
+        "group_id": task["group_id"],
+        "group_name": task["group_name"],
+        "window_status": task_window_status(task),
+        "scheduled_start": task["scheduled_start"],
+        "scheduled_end": task["scheduled_end"],
+        "total_sessions": total_sessions,
+        "total_study_seconds": total_seconds,
+        "total_study_minutes": round(total_seconds / 60, 2),
+        "total_points": total_points,
+        "member_breakdown": member_breakdown
+    }
+
 # =========================================================
 # CURRENT USER SUPPORT
 # =========================================================
@@ -426,7 +604,7 @@ def get_current_user_route():
 def set_current_user():
     global current_user_id
 
-    data = request.json
+    data = request.json or {}
     user_id = data.get("user_id")
 
     user = find_user(user_id)
@@ -456,6 +634,8 @@ def focus_status():
     return jsonify({
         "user_id": user["id"],
         "study_total_seconds": user["study_seconds"],
+        "study_today_seconds": get_user_today_seconds(user["id"]),
+        "study_week_seconds": get_user_week_seconds(user["id"]),
         "active": focus_state["active"],
         "type": focus_state["type"],
         "started_at": focus_state["started_at"],
@@ -495,7 +675,9 @@ def avatar_data():
         "session_type": focus_state["type"],
         "active_session_started_at": focus_state["started_at"],
         "doom_scroll_total_seconds": get_total_doom_scroll_seconds(),
-        "study_total_seconds": user["study_seconds"]
+        "study_total_seconds": user["study_seconds"],
+        "study_today_seconds": get_user_today_seconds(user["id"]),
+        "study_week_seconds": get_user_week_seconds(user["id"])
     })
 
 @app.route("/profile", methods=["GET"])
@@ -520,9 +702,9 @@ def update_profile():
 
     ensure_user_defaults(user)
 
-    data = request.json
-    name = data.get("name", "").strip()
-    avatar_type = data.get("avatar_type", "").strip().lower()
+    data = request.json or {}
+    name = str(data.get("name", "")).strip()
+    avatar_type = str(data.get("avatar_type", "")).strip().lower()
 
     avatar_profile = data.get("avatar_profile", {})
     hair_style = str(avatar_profile.get("hair_style", user["avatar_profile"]["hair_style"])).strip().lower()
@@ -540,24 +722,20 @@ def update_profile():
 
     if not name:
         return jsonify({"message": "Name cannot be empty"}), 400
-
     if avatar_type not in valid_avatar_types:
         return jsonify({"message": "Invalid avatar style"}), 400
-
     if hair_style not in valid_hair_styles:
         return jsonify({"message": "Invalid hair style"}), 400
-
     if skin_tone not in valid_skin_tones:
         return jsonify({"message": "Invalid skin tone"}), 400
-
     if outfit_color not in valid_outfit_colors:
         return jsonify({"message": "Invalid outfit color"}), 400
-
     if face_style not in valid_face_styles:
         return jsonify({"message": "Invalid face style"}), 400
-
     if accessory not in valid_accessories:
         return jsonify({"message": "Invalid accessory"}), 400
+
+    old_name = user["name"]
 
     user["name"] = name
     user["avatar_style"] = avatar_type
@@ -578,7 +756,28 @@ def update_profile():
         if assignment["user_id"] == user["id"]:
             assignment["user_name"] = user["name"]
 
-    return jsonify({"message": "Profile updated successfully"})
+    for session in group_sessions:
+        if session["user_id"] == user["id"]:
+            session["user_name"] = user["name"]
+
+    for msg_list in group_messages.values():
+        for msg in msg_list:
+            if msg["sender_id"] == user["id"]:
+                msg["sender_name"] = user["name"]
+
+    for item in study_history:
+        if item["user_id"] == user["id"]:
+            item["user_name"] = user["name"]
+
+    for item in task_session_history:
+        if item["user_id"] == user["id"]:
+            item["user_name"] = user["name"]
+
+    return jsonify({
+        "message": "Profile updated successfully",
+        "old_name": old_name,
+        "new_name": user["name"]
+    })
 
 @app.route("/start-session", methods=["POST"])
 def start_session():
@@ -611,7 +810,9 @@ def end_session():
     if not solo_session["active"] or not solo_session["started_at"] or solo_session["user_id"] != user["id"]:
         return jsonify({"message": "No solo session is active"}), 400
 
-    elapsed_seconds = calculate_elapsed_seconds(solo_session["started_at"])
+    started_at = solo_session["started_at"]
+    ended_at = now_str()
+    elapsed_seconds = calculate_elapsed_seconds(started_at)
     elapsed_minutes = elapsed_seconds / 60.0
     earned_points = study_points_from_minutes(elapsed_minutes)
 
@@ -621,6 +822,16 @@ def end_session():
     if elapsed_seconds >= 900:
         reward_consistency(user, 1)
 
+    history_item = record_study_history(
+        user_id=user["id"],
+        session_type="solo",
+        seconds=elapsed_seconds,
+        points=earned_points,
+        started_at=started_at,
+        ended_at=ended_at,
+        source="solo_session"
+    )
+
     solo_session["active"] = False
     solo_session["started_at"] = None
     solo_session["user_id"] = None
@@ -628,7 +839,8 @@ def end_session():
     return jsonify({
         "message": "Solo study session ended",
         "earned_points": earned_points,
-        "study_seconds_added": elapsed_seconds
+        "study_seconds_added": elapsed_seconds,
+        "history_item": history_item
     })
 
 # =========================================================
@@ -669,7 +881,7 @@ def get_restricted_apps():
 
 @app.route("/set-app-limit", methods=["POST"])
 def set_app_limit():
-    data = request.json
+    data = request.json or {}
     app_id = data.get("app_id")
     limit_minutes = data.get("limit_minutes")
 
@@ -679,7 +891,7 @@ def set_app_limit():
 
     try:
         limit_minutes = int(limit_minutes)
-    except:
+    except Exception:
         return jsonify({"message": "Limit must be a number"}), 400
 
     if limit_minutes < 0:
@@ -696,7 +908,7 @@ def toggle_restricted_app():
 
     ensure_user_defaults(user)
 
-    data = request.json
+    data = request.json or {}
     app_id = data.get("app_id")
 
     app_item = find_restricted_app(app_id)
@@ -730,6 +942,7 @@ def toggle_restricted_app():
 
     used_seconds = get_app_used_seconds(app_item)
     limit_seconds = app_item["limit_minutes"] * 60
+
     if used_seconds >= limit_seconds:
         return jsonify({"message": f"{app_item['name']} limit exhausted"}), 400
 
@@ -783,8 +996,8 @@ def get_my_groups(user_id):
 def create_group():
     global group_id_counter
 
-    data = request.json
-    name = data.get("name", "").strip()
+    data = request.json or {}
+    name = str(data.get("name", "")).strip()
     leader_id = data.get("leader_id")
 
     if not name:
@@ -823,8 +1036,8 @@ def create_group():
 
 @app.route("/groups/join", methods=["POST"])
 def join_group():
-    data = request.json
-    join_code = data.get("join_code", "").strip().upper()
+    data = request.json or {}
+    join_code = str(data.get("join_code", "")).strip().upper()
     user_id = data.get("user_id")
 
     user = find_user(user_id)
@@ -867,7 +1080,7 @@ def get_group(group_id):
 
 @app.route("/groups/<int:group_id>/leave", methods=["POST"])
 def leave_group(group_id):
-    data = request.json
+    data = request.json or {}
     user_id = data.get("user_id")
 
     group = find_group(group_id)
@@ -883,16 +1096,12 @@ def leave_group(group_id):
 
     if group["leader_id"] == user_id:
         if len(group["members"]) > 1:
-            return jsonify({
-                "error": "Leader cannot leave while other members exist"
-            }), 400
-        else:
-            groups.remove(group)
-            group_messages.pop(group_id, None)
-            return jsonify({"message": "Group deleted because leader left"})
+            return jsonify({"error": "Leader cannot leave while other members exist"}), 400
+        groups.remove(group)
+        group_messages.pop(group_id, None)
+        return jsonify({"message": "Group deleted because leader left"})
 
     group["members"] = [m for m in group["members"] if m["user_id"] != user_id]
-
     return jsonify({"message": "Left group successfully", "group": group})
 
 @app.route("/groups/<int:group_id>/members", methods=["GET"])
@@ -914,17 +1123,15 @@ def get_group_messages(group_id):
 
 @app.route("/groups/<int:group_id>/messages", methods=["POST"])
 def send_group_message(group_id):
-    data = request.json
+    data = request.json or {}
     user_id = data.get("user_id")
-    text = data.get("text", "").strip()
+    text = str(data.get("text", "")).strip()
 
     group = find_group(group_id)
     if not group:
         return jsonify({"error": "Group not found"}), 404
-
     if not text:
         return jsonify({"error": "Message cannot be empty"}), 400
-
     if not user_in_group(user_id, group):
         return jsonify({"error": "Only group members can send messages"}), 403
 
@@ -957,6 +1164,7 @@ def get_group_tasks(group_id):
     for task in tasks:
         active_sessions = get_active_group_sessions_for_task(task["id"])
         user_active_session = get_active_group_session_for_user_and_task(current_user_id, task["id"])
+        analytics = get_task_analytics(task["id"])
 
         result.append({
             **task,
@@ -964,7 +1172,8 @@ def get_group_tasks(group_id):
             "active_session_count": len(active_sessions),
             "has_active_sessions": len(active_sessions) > 0,
             "user_has_active_session": user_active_session is not None,
-            "user_active_session_id": user_active_session["id"] if user_active_session else None
+            "user_active_session_id": user_active_session["id"] if user_active_session else None,
+            "analytics": analytics
         })
 
     return jsonify(result)
@@ -973,14 +1182,14 @@ def get_group_tasks(group_id):
 def create_group_task(group_id):
     global task_id_counter
 
-    data = request.json
+    data = request.json or {}
 
     creator_id = data.get("creator_id")
-    title = data.get("title", "").strip()
-    category = data.get("category", "").strip()
-    description = data.get("description", "").strip()
-    scheduled_start = data.get("scheduled_start", "").strip()
-    scheduled_end = data.get("scheduled_end", "").strip()
+    title = str(data.get("title", "")).strip()
+    category = str(data.get("category", "")).strip()
+    description = str(data.get("description", "")).strip()
+    scheduled_start = str(data.get("scheduled_start", "")).strip()
+    scheduled_end = str(data.get("scheduled_end", "")).strip()
 
     group = find_group(group_id)
     if not group:
@@ -992,13 +1201,13 @@ def create_group_task(group_id):
     if not title or not scheduled_start or not scheduled_end:
         return jsonify({"error": "Title, start and end are required"}), 400
 
-    try:
-        start_dt = datetime.fromisoformat(scheduled_start)
-        end_dt = datetime.fromisoformat(scheduled_end)
-        if end_dt <= start_dt:
-            return jsonify({"error": "End time must be after start time"}), 400
-    except ValueError:
+    start_dt = parse_iso(scheduled_start)
+    end_dt = parse_iso(scheduled_end)
+
+    if not start_dt or not end_dt:
         return jsonify({"error": "Invalid datetime format"}), 400
+    if end_dt <= start_dt:
+        return jsonify({"error": "End time must be after start time"}), 400
 
     creator = find_user(creator_id)
 
@@ -1048,33 +1257,38 @@ def get_assigned_tasks(user_id):
 
     for assignment in user_assignments:
         task = find_task(assignment["task_id"])
-        if task:
-            active_sessions = get_active_group_sessions_for_task(task["id"])
-            user_active_session = get_active_group_session_for_user_and_task(user_id, task["id"])
+        if not task:
+            continue
 
-            task_data = {
-                "task_id": task["id"],
-                "title": task["title"],
-                "category": task["category"],
-                "description": task["description"],
-                "group_id": task["group_id"],
-                "group_name": task["group_name"],
-                "created_by_name": task["created_by_name"],
-                "scheduled_start": task["scheduled_start"],
-                "scheduled_end": task["scheduled_end"],
-                "window_status": task_window_status(task),
-                "assignment_status": assignment["status"],
-                "study_minutes": assignment["study_minutes"],
-                "points_earned": assignment["points_earned"],
-                "proof_submitted": assignment["proof_submitted"],
-                "session_count": assignment.get("session_count", 0),
-                "can_start_now": task_window_status(task) == "Active",
-                "active_session_count": len(active_sessions),
-                "has_active_sessions": len(active_sessions) > 0,
-                "user_has_active_session": user_active_session is not None,
-                "user_active_session_id": user_active_session["id"] if user_active_session else None
-            }
-            result.append(task_data)
+        active_sessions = get_active_group_sessions_for_task(task["id"])
+        user_active_session = get_active_group_session_for_user_and_task(user_id, task["id"])
+        analytics = get_task_analytics(task["id"])
+
+        task_data = {
+            "task_id": task["id"],
+            "title": task["title"],
+            "category": task["category"],
+            "description": task["description"],
+            "group_id": task["group_id"],
+            "group_name": task["group_name"],
+            "created_by_name": task["created_by_name"],
+            "scheduled_start": task["scheduled_start"],
+            "scheduled_end": task["scheduled_end"],
+            "window_status": task_window_status(task),
+            "assignment_status": assignment["status"],
+            "study_minutes": assignment["study_minutes"],
+            "points_earned": assignment["points_earned"],
+            "proof_submitted": assignment["proof_submitted"],
+            "session_count": assignment.get("session_count", 0),
+            "can_start_now": task_window_status(task) == "Active",
+            "active_session_count": len(active_sessions),
+            "has_active_sessions": len(active_sessions) > 0,
+            "user_has_active_session": user_active_session is not None,
+            "user_active_session_id": user_active_session["id"] if user_active_session else None,
+            "task_total_study_minutes": analytics["total_study_minutes"] if analytics else 0,
+            "task_total_sessions": analytics["total_sessions"] if analytics else 0
+        }
+        result.append(task_data)
 
     result.sort(key=lambda x: x["scheduled_start"])
     return jsonify(result)
@@ -1082,36 +1296,30 @@ def get_assigned_tasks(user_id):
 # =========================================================
 # GROUP STUDY SESSION FLOW
 # =========================================================
-@app.route("/group-sessions/start", methods=["POST"])
-def start_group_session():
+def start_group_session_internal_logic(user_id, group_id, task_id):
     global session_id_counter
-
-    data = request.json
-    user_id = data.get("user_id")
-    group_id = data.get("group_id")
-    task_id = data.get("task_id")
 
     group = find_group(group_id)
     if not group:
-        return jsonify({"error": "Group not found"}), 404
+        return {"error": "Group not found"}, 404
 
     if not user_in_group(user_id, group):
-        return jsonify({"error": "User is not part of this group"}), 403
+        return {"error": "User is not part of this group"}, 403
 
     task = find_task(task_id)
     if not task or task["group_id"] != group_id:
-        return jsonify({"error": "Task not found for this group"}), 404
+        return {"error": "Task not found for this group"}, 404
 
     if task_window_status(task) != "Active":
-        return jsonify({"error": "Task window is not active right now"}), 400
+        return {"error": "Task window is not active right now"}, 400
 
     current_focus = get_user_focus_state(user_id)
     if current_focus["active"]:
-        return jsonify({"error": "User already has an active focus session"}), 400
+        return {"error": "User already has an active focus session"}, 400
 
     existing_user_task_session = get_active_group_session_for_user_and_task(user_id, task_id)
     if existing_user_task_session:
-        return jsonify({"error": "You already have an active session for this task"}), 400
+        return {"error": "You already have an active session for this task"}, 400
 
     if user_id == current_user_id:
         close_open_apps_and_apply_penalty()
@@ -1140,15 +1348,21 @@ def start_group_session():
         assignment["session_count"] = assignment.get("session_count", 0) + 1
 
     session_id_counter += 1
+    return {"message": "Study session started", "session": new_session}, 200
 
-    return jsonify({
-        "message": "Study session started",
-        "session": new_session
-    })
+@app.route("/group-sessions/start", methods=["POST"])
+def start_group_session():
+    data = request.json or {}
+    result, status = start_group_session_internal_logic(
+        user_id=data.get("user_id"),
+        group_id=data.get("group_id"),
+        task_id=data.get("task_id")
+    )
+    return jsonify(result), status
 
 @app.route("/group-sessions/join", methods=["POST"])
 def join_group_session():
-    data = request.json
+    data = request.json or {}
     user_id = data.get("user_id")
     session_id = data.get("session_id")
 
@@ -1159,73 +1373,16 @@ def join_group_session():
     if target_session["status"] != "active":
         return jsonify({"error": "Session is not active"}), 400
 
-    return start_group_session_internal(
+    result, status = start_group_session_internal_logic(
         user_id=user_id,
         group_id=target_session["group_id"],
         task_id=target_session["task_id"]
     )
-
-def start_group_session_internal(user_id, group_id, task_id):
-    global session_id_counter
-
-    group = find_group(group_id)
-    if not group:
-        return jsonify({"error": "Group not found"}), 404
-
-    if not user_in_group(user_id, group):
-        return jsonify({"error": "User is not part of this group"}), 403
-
-    task = find_task(task_id)
-    if not task or task["group_id"] != group_id:
-        return jsonify({"error": "Task not found for this group"}), 404
-
-    if task_window_status(task) != "Active":
-        return jsonify({"error": "Task window is not active right now"}), 400
-
-    current_focus = get_user_focus_state(user_id)
-    if current_focus["active"]:
-        return jsonify({"error": "User already has an active focus session"}), 400
-
-    existing_user_task_session = get_active_group_session_for_user_and_task(user_id, task_id)
-    if existing_user_task_session:
-        return jsonify({"error": "You already have an active session for this task"}), 400
-
-    if user_id == current_user_id:
-        close_open_apps_and_apply_penalty()
-
-    user = find_user(user_id)
-    ensure_user_defaults(user)
-    assignment = get_assignment(user_id, task_id)
-
-    new_session = {
-        "id": session_id_counter,
-        "group_id": group_id,
-        "group_name": group["name"],
-        "task_id": task_id,
-        "task_title": task["title"],
-        "user_id": user_id,
-        "user_name": user["name"] if user else "Unknown",
-        "status": "active",
-        "start_time": now_str(),
-        "end_time": None
-    }
-
-    group_sessions.append(new_session)
-
-    if assignment:
-        assignment["status"] = "In Progress"
-        assignment["session_count"] = assignment.get("session_count", 0) + 1
-
-    session_id_counter += 1
-
-    return jsonify({
-        "message": "Study session started",
-        "session": new_session
-    })
+    return jsonify(result), status
 
 @app.route("/group-sessions/leave", methods=["POST"])
 def leave_group_session():
-    data = request.json
+    data = request.json or {}
     user_id = data.get("user_id")
     session_id = data.get("session_id")
     task_id = data.get("task_id")
@@ -1233,10 +1390,7 @@ def leave_group_session():
     session = None
 
     if session_id:
-        session = next(
-            (s for s in group_sessions if s["id"] == session_id and s["status"] == "active"),
-            None
-        )
+        session = next((s for s in group_sessions if s["id"] == session_id and s["status"] == "active"), None)
     elif task_id:
         session = get_active_group_session_for_user_and_task(user_id, task_id)
     else:
@@ -1258,12 +1412,14 @@ def leave_group_session():
 
     ensure_user_defaults(user)
 
-    elapsed_seconds = calculate_elapsed_seconds(session["start_time"])
+    started_at = session["start_time"]
+    ended_at = now_str()
+    elapsed_seconds = calculate_elapsed_seconds(started_at)
     elapsed_minutes = elapsed_seconds / 60.0
     earned_points = study_points_from_minutes(elapsed_minutes)
 
     session["status"] = "ended"
-    session["end_time"] = now_str()
+    session["end_time"] = ended_at
 
     user["co2_points"] += earned_points
     user["study_seconds"] += elapsed_seconds
@@ -1281,11 +1437,38 @@ def leave_group_session():
         else:
             assignment["status"] = "In Progress"
 
+    history_item = record_study_history(
+        user_id=user_id,
+        session_type="group",
+        seconds=elapsed_seconds,
+        points=earned_points,
+        started_at=started_at,
+        ended_at=ended_at,
+        group_id=group["id"],
+        group_name=group["name"],
+        task_id=task["id"],
+        task_title=task["title"],
+        source="group_session"
+    )
+
+    task_history_item = record_task_session_history(
+        user_id=user_id,
+        group_id=group["id"],
+        task_id=task["id"],
+        session_id=session["id"],
+        seconds=elapsed_seconds,
+        points=earned_points,
+        started_at=started_at,
+        ended_at=ended_at
+    )
+
     return jsonify({
         "message": "Study session ended",
         "session": session,
         "earned_points": earned_points,
-        "study_seconds_added": elapsed_seconds
+        "study_seconds_added": elapsed_seconds,
+        "history_item": history_item,
+        "task_history_item": task_history_item
     })
 
 @app.route("/group-sessions/end", methods=["POST"])
@@ -1316,10 +1499,10 @@ def get_group_active_sessions(group_id):
 def submit_proof(task_id):
     global proof_id_counter
 
-    data = request.json
+    data = request.json or {}
     user_id = data.get("user_id")
-    completed_work = data.get("completed_work", "").strip()
-    learned_summary = data.get("learned_summary", "").strip()
+    completed_work = str(data.get("completed_work", "")).strip()
+    learned_summary = str(data.get("learned_summary", "")).strip()
     confidence = data.get("confidence", 0)
 
     task = find_task(task_id)
@@ -1327,7 +1510,6 @@ def submit_proof(task_id):
         return jsonify({"error": "Task not found"}), 404
 
     assignment = get_assignment(user_id, task_id)
-
     if not assignment:
         return jsonify({"error": "Task assignment not found"}), 404
 
@@ -1336,7 +1518,7 @@ def submit_proof(task_id):
 
     try:
         confidence = int(confidence)
-    except:
+    except Exception:
         confidence = 0
 
     if confidence < 1 or confidence > 10:
@@ -1372,6 +1554,83 @@ def submit_proof(task_id):
     })
 
 # =========================================================
+# NEW ANALYTICS / HISTORY ROUTES
+# =========================================================
+@app.route("/users/<int:user_id>/study-history", methods=["GET"])
+def get_study_history(user_id):
+    user = find_user(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    limit = request.args.get("limit", 10)
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 10
+
+    if limit < 1:
+        limit = 1
+    if limit > 100:
+        limit = 100
+
+    return jsonify(get_user_recent_history(user_id, limit=limit))
+
+@app.route("/users/<int:user_id>/study-summary", methods=["GET"])
+def get_user_study_summary(user_id):
+    user = find_user(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    daily = get_summary_range(7, user_id=user_id)
+    weekly = get_summary_range(28, user_id=user_id)
+
+    total_sessions = len([h for h in study_history if h["user_id"] == user_id])
+    solo_sessions = len([h for h in study_history if h["user_id"] == user_id and h["session_type"] == "solo"])
+    group_sessions_count = len([h for h in study_history if h["user_id"] == user_id and h["session_type"] == "group"])
+
+    return jsonify({
+        "user_id": user_id,
+        "user_name": user["name"],
+        "total_study_seconds": user.get("study_seconds", 0),
+        "total_study_minutes": round(user.get("study_seconds", 0) / 60, 2),
+        "today_study_seconds": get_user_today_seconds(user_id),
+        "today_study_minutes": round(get_user_today_seconds(user_id) / 60, 2),
+        "week_study_seconds": get_user_week_seconds(user_id),
+        "week_study_minutes": round(get_user_week_seconds(user_id) / 60, 2),
+        "session_counts": {
+            "all": total_sessions,
+            "solo": solo_sessions,
+            "group": group_sessions_count
+        },
+        "daily_breakdown": daily,
+        "weekly_breakdown": weekly
+    })
+
+@app.route("/tasks/<int:task_id>/analytics", methods=["GET"])
+def get_task_analytics_route(task_id):
+    analytics = get_task_analytics(task_id)
+    if not analytics:
+        return jsonify({"error": "Task not found"}), 404
+    return jsonify(analytics)
+
+@app.route("/groups/<int:group_id>/task-analytics", methods=["GET"])
+def get_group_task_analytics(group_id):
+    group = find_group(group_id)
+    if not group:
+        return jsonify({"error": "Group not found"}), 404
+
+    tasks = [t for t in group_tasks if t["group_id"] == group_id]
+    analytics_list = []
+
+    for task in tasks:
+        item = get_task_analytics(task["id"])
+        if item:
+            analytics_list.append(item)
+
+    analytics_list.sort(key=lambda x: x["scheduled_start"])
+    return jsonify(analytics_list)
+
+# =========================================================
 # LEADERBOARDS
 # =========================================================
 @app.route("/leaderboard", methods=["GET"])
@@ -1402,7 +1661,6 @@ def group_member_leaderboard(group_id):
     group = find_group(group_id)
     if not group:
         return jsonify({"error": "Group not found"}), 404
-
     return jsonify(get_group_member_leaderboard(group_id))
 
 # =========================================================

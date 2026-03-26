@@ -3,353 +3,338 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Braintax</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <title>braintax</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="header">
-        <div class="header-left">
-            <button class="menu-btn" id="menuBtn">☰</button>
-            <div class="brand">
-                <div class="brand-title">Braintax</div>
-                <div class="brand-subtitle">focus, accountability, gentle discipline</div>
+    <div id="toast" class="toast"></div>
+
+    <header class="topbar">
+        <div class="brand-block">
+            <h1 class="brand-title">braintax</h1>
+            <p class="brand-subtitle">Focus, accountability, and cleaner habits.</p>
+        </div>
+
+        <div class="topbar-actions">
+            <div class="user-switcher">
+                <label for="currentUserSelect">Current User</label>
+                <select id="currentUserSelect">
+                    <option value="1">Andriya</option>
+                    <option value="2">Aisha</option>
+                    <option value="3">Rohan</option>
+                </select>
+            </div>
+
+            <button id="co2Button" class="co2-btn">View CO₂ Avatar</button>
+
+            <div class="menu-wrapper">
+                <button id="menuBtn" class="menu-btn">☰</button>
+                <div id="dropdownMenu" class="dropdown-menu">
+                    <button id="dashboardMenu">Dashboard</button>
+                    <button id="profileMenu">Profile</button>
+                    <button id="restrictedAppsMenu">Restricted Apps</button>
+                    <button id="themeToggleMenu">Switch Theme</button>
+                </div>
             </div>
         </div>
+    </header>
 
-        <button class="co2-btn" id="co2Button">CO₂ Points</button>
-
-        <div class="dropdown-menu" id="dropdownMenu">
-            <div class="dropdown-item" id="dashboardMenu">Dashboard</div>
-            <div class="dropdown-item" id="profileMenu">Student Profile</div>
-            <div class="dropdown-item" id="restrictedAppsMenu">Restricted Apps</div>
-            <div class="dropdown-item" id="themeToggleMenu">Switch to Dark Theme</div>
-        </div>
-    </div>
-
-    <div class="page">
-        <!-- DASHBOARD -->
-        <div id="dashboardSection" class="section active">
-            <div class="home-layout">
-                <div class="home-topbar-card">
-                    <div class="home-topbar-left">
-                        <label for="currentUserSelect">Current User</label>
-                        <select id="currentUserSelect">
-                            <option value="1">Andriya</option>
-                            <option value="2">Aisha</option>
-                            <option value="3">Rohan</option>
-                        </select>
-                    </div>
-
-                    <div class="home-topbar-right">
-                        <div class="pill" id="heroNamePill">Name: User</div>
-                        <div class="pill" id="heroPointsPill">CO₂ Points: 0</div>
-                        <div class="pill" id="heroMoodPill">Mood: neutral</div>
-                        <div class="pill" id="heroDoomPill">Doom Scroll: 00:00:00</div>
-                    </div>
+    <main class="page-shell">
+        <section id="dashboardSection" class="main-section active">
+            <section class="hero-panel">
+                <div class="hero-top-row">
+                    <div class="hero-pill" id="heroNamePill">Name: -</div>
+                    <div class="hero-pill" id="heroPointsPill">CO₂ Points: -</div>
+                    <div class="hero-pill" id="heroMoodPill">Mood: -</div>
+                    <div class="hero-pill" id="heroDoomPill">Doom Scroll: 00:00:00</div>
                 </div>
 
-                <div class="study-focus-card">
-                    <div class="study-focus-head">
-                        <div class="study-focus-mini" id="focusTypeLabel">No active focus session</div>
-                        <span class="status-pill" id="sessionBadge">No Active Session</span>
-                    </div>
-
-                    <div class="study-focus-center">
-                        <div class="study-time-label">Time studied</div>
-                        <div class="study-time-value" id="studyTotalDisplay">00:00:00</div>
-                        <div class="study-time-subtext" id="sessionStatus">No study session is active.</div>
-                    </div>
-
-                    <div class="timer-box">
-                        <div class="timer-label">Current session timer</div>
-                        <div class="timer" id="timerDisplay">00:00:00</div>
-                    </div>
-
-                    <div class="action-buttons center-actions">
-                        <button class="primary-btn" id="startBtn">Start Solo Session</button>
-                        <button class="secondary-btn" id="endBtn">End Solo Session</button>
-                        <button class="ghost-btn" id="refreshBtn">Refresh</button>
-                    </div>
-
-                    <div class="message-inline center-message" id="messageBox">Ready when you are.</div>
+                <div class="hero-center">
+                    <p class="hero-label">Total Individual Study Time</p>
+                    <h2 class="hero-time" id="studyTotalDisplay">00:00:00</h2>
                 </div>
 
-                <div class="assigned-tasks-card">
-                    <div class="card-title-row centered-card-title">
-                        <div>
-                            <h2>Assigned Tasks</h2>
-                            <p class="muted section-subtext">
-                                Start and leave study sessions as many times as needed within the task window.
-                            </p>
+                <div class="hero-bottom-row">
+                    <div class="session-card">
+                        <div class="session-card-top">
+                            <span class="session-badge" id="sessionBadge">No Active Session</span>
+                            <button id="refreshBtn" class="ghost-btn">Refresh</button>
+                        </div>
+
+                        <h3 id="focusTypeLabel">No active focus session</h3>
+                        <p id="sessionStatus">No study session is active.</p>
+
+                        <div class="live-timer-block">
+                            <span class="timer-label">Live Session Timer</span>
+                            <div id="timerDisplay" class="timer-display">00:00:00</div>
+                        </div>
+
+                        <div class="session-actions">
+                            <button id="startBtn" class="primary-btn">Start Solo Session</button>
+                            <button id="endBtn" class="secondary-btn">End Solo Session</button>
                         </div>
                     </div>
-                    <div id="tasksList">Loading tasks...</div>
+                </div>
+            </section>
+
+            <section class="content-grid">
+                <div class="main-column">
+                    <div class="panel-card">
+                        <div class="panel-head">
+                            <h2>Assigned Tasks</h2>
+                            <p>Tasks created by the leaders of your groups show up here.</p>
+                        </div>
+                        <div id="tasksList" class="task-list">
+                            <p>No assigned tasks yet.</p>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="home-bottom-nav-card">
-                    <button class="bottom-nav-btn active" id="groupsTabBtn">Groups</button>
-                    <button class="bottom-nav-btn" id="leaderboardTabBtn">Leaderboard</button>
-                </div>
+                <div class="side-column">
+                    <div class="panel-card">
+                        <div class="panel-tabs">
+                            <button id="groupsTabBtn" class="tab-btn active">Groups</button>
+                            <button id="leaderboardTabBtn" class="tab-btn">Leaderboards</button>
+                        </div>
 
-                <div class="bottom-panel active" id="groupsPanel">
-                    <div class="groups-panel-grid">
-                        <div class="card">
-                            <div class="card-title-row">
-                                <h3>Groups</h3>
-                            </div>
-
-                            <div class="form-block">
-                                <h4>Create Group</h4>
+                        <div id="groupsPanel" class="panel-tab-content active">
+                            <div class="form-block compact-block">
+                                <h3>Create Group</h3>
                                 <input type="text" id="groupNameInput" placeholder="Enter group name">
                                 <button class="primary-btn" onclick="createGroup()">Create Group</button>
                             </div>
 
-                            <div class="form-block">
-                                <h4>Join Group</h4>
+                            <div class="form-block compact-block">
+                                <h3>Join Group</h3>
                                 <input type="text" id="joinCodeInput" placeholder="Enter join code">
                                 <button class="secondary-btn" onclick="joinGroup()">Join Group</button>
                             </div>
 
-                            <div>
-                                <h4>My Groups</h4>
-                                <div id="myGroupsList">Loading groups...</div>
+                            <div class="panel-subsection">
+                                <h3>My Groups</h3>
+                                <div id="myGroupsList">
+                                    <p>No groups joined yet.</p>
+                                </div>
                             </div>
-                        </div>
 
-                        <div class="card">
-                            <div class="card-title-row">
+                            <div class="panel-subsection">
                                 <h3>Selected Group</h3>
+                                <div id="groupDetails" class="group-details-placeholder">
+                                    Select a group to view chat, tasks, active sessions, and leaderboard.
+                                </div>
                             </div>
-                            <div id="groupDetails">Select a group to view chat, tasks, active sessions, and leaderboard.</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bottom-panel" id="leaderboardPanel">
-                    <div class="leaderboard-panel-grid">
-                        <div class="card">
-                            <div class="card-title-row">
-                                <h3>Group Leaderboard</h3>
-                            </div>
-                            <div id="groupLeaderboardList">Loading group leaderboard...</div>
                         </div>
 
-                        <div class="card">
-                            <div class="card-title-row">
+                        <div id="leaderboardPanel" class="panel-tab-content">
+                            <div class="panel-subsection">
                                 <h3>Individual Leaderboard</h3>
+                                <div id="leaderboardList">
+                                    <p>No leaderboard data yet.</p>
+                                </div>
                             </div>
-                            <div id="leaderboardList">Loading individual leaderboard...</div>
+
+                            <div class="panel-subsection">
+                                <h3>Group Leaderboard</h3>
+                                <div id="groupLeaderboardList">
+                                    <p>No group leaderboard data yet.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <div id="messageBox" class="message-box"></div>
+        </section>
+
+        <section id="profileSection" class="main-section">
+            <div class="panel-card profile-shell">
+                <div class="panel-head">
+                    <h2>Profile & Avatar Setup</h2>
+                    <p>Customize your avatar properly instead of only picking a mood style.</p>
+                </div>
+
+                <div class="profile-grid">
+                    <div class="form-block">
+                        <label for="profileName">Name</label>
+                        <input type="text" id="profileName" placeholder="Enter your name">
+
+                        <label for="avatarType">Avatar Style</label>
+                        <select id="avatarType">
+                            <option value="calm">Calm</option>
+                            <option value="energetic">Energetic</option>
+                            <option value="focused">Focused</option>
+                        </select>
+
+                        <label for="hairStyle">Hair Style</label>
+                        <select id="hairStyle">
+                            <option value="short">Short</option>
+                            <option value="bob">Bob</option>
+                            <option value="spiky">Spiky</option>
+                            <option value="curly">Curly</option>
+                            <option value="wavy">Wavy</option>
+                        </select>
+
+                        <label for="skinTone">Skin Tone</label>
+                        <select id="skinTone">
+                            <option value="light">Light</option>
+                            <option value="warm">Warm</option>
+                            <option value="tan">Tan</option>
+                            <option value="deep">Deep</option>
+                        </select>
+
+                        <label for="outfitColor">Outfit Color</label>
+                        <select id="outfitColor">
+                            <option value="blue">Blue</option>
+                            <option value="green">Green</option>
+                            <option value="orange">Orange</option>
+                            <option value="purple">Purple</option>
+                            <option value="grey">Grey</option>
+                        </select>
+
+                        <label for="faceStyle">Face Style</label>
+                        <select id="faceStyle">
+                            <option value="soft">Soft</option>
+                            <option value="round">Round</option>
+                            <option value="sharp">Sharp</option>
+                        </select>
+
+                        <label for="accessory">Accessory</label>
+                        <select id="accessory">
+                            <option value="none">None</option>
+                            <option value="glasses">Glasses</option>
+                            <option value="headband">Headband</option>
+                            <option value="clip">Clip</option>
+                        </select>
+
+                        <div class="task-actions">
+                            <button id="saveProfileBtn" class="primary-btn">Save Profile</button>
+                        </div>
+
+                        <p id="profileMessage" class="message-inline"></p>
+                    </div>
+
+                    <div class="preview-card">
+                        <h3>Current Selection Preview</h3>
+                        <div class="preview-stack">
+                            <p id="previewName">Name: -</p>
+                            <p id="previewAvatar">Avatar Style: -</p>
+                            <p id="previewHair">Hair Style: -</p>
+                            <p id="previewSkin">Skin Tone: -</p>
+                            <p id="previewOutfit">Outfit Color: -</p>
+                            <p id="previewFace">Face Style: -</p>
+                            <p id="previewAccessory">Accessory: -</p>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- PROFILE -->
-        <div id="profileSection" class="section">
-            <div class="profile-page">
-                <div class="profile-card">
-                    <div class="profile-head">
-                        <h2>Student Profile</h2>
-                        <p>Edit your name, avatar style, and character look here.</p>
-                    </div>
+        <section id="restrictedAppsSection" class="main-section">
+            <div class="panel-card">
+                <div class="panel-head">
+                    <h2>Restricted Apps</h2>
+                    <p>Manage doom-scrolling limits and track usage impact.</p>
+                </div>
 
-                    <label for="profileName">Display Name</label>
-                    <input type="text" id="profileName" placeholder="Enter your name">
+                <div class="apps-summary-row">
+                    <div class="hero-pill" id="appsSessionIndicator">No Study Session Active</div>
+                    <div class="hero-pill" id="appsDoomIndicator">Total Doom Scroll: 00:00:00</div>
+                </div>
 
-                    <label for="avatarType">Avatar Personality Style</label>
-                    <select id="avatarType">
-                        <option value="calm">Calm</option>
-                        <option value="energetic">Energetic</option>
-                        <option value="focused">Focused</option>
-                    </select>
-
-                    <div class="profile-custom-grid">
-                        <div>
-                            <label for="hairStyle">Hair Style</label>
-                            <select id="hairStyle">
-                                <option value="short">Short</option>
-                                <option value="bob">Bob</option>
-                                <option value="spiky">Spiky</option>
-                                <option value="curly">Curly</option>
-                                <option value="wavy">Wavy</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label for="skinTone">Skin Tone</label>
-                            <select id="skinTone">
-                                <option value="light">Light</option>
-                                <option value="warm">Warm</option>
-                                <option value="tan">Tan</option>
-                                <option value="deep">Deep</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label for="outfitColor">Outfit Color</label>
-                            <select id="outfitColor">
-                                <option value="blue">Blue</option>
-                                <option value="green">Green</option>
-                                <option value="orange">Orange</option>
-                                <option value="purple">Purple</option>
-                                <option value="grey">Grey</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label for="faceStyle">Face Style</label>
-                            <select id="faceStyle">
-                                <option value="soft">Soft</option>
-                                <option value="round">Round</option>
-                                <option value="sharp">Sharp</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label for="accessory">Accessory</label>
-                            <select id="accessory">
-                                <option value="none">None</option>
-                                <option value="glasses">Glasses</option>
-                                <option value="headband">Headband</option>
-                                <option value="clip">Clip</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="profile-buttons">
-                        <button class="primary-btn" id="saveProfileBtn">Save Profile</button>
-                    </div>
-
-                    <p class="muted" id="profileMessage"></p>
-
-                    <div class="profile-preview">
-                        <h3>Current Profile</h3>
-                        <p id="previewName">Name: User</p>
-                        <p id="previewAvatar">Avatar Style: calm</p>
-                        <p id="previewHair">Hair Style: short</p>
-                        <p id="previewSkin">Skin Tone: warm</p>
-                        <p id="previewOutfit">Outfit Color: blue</p>
-                        <p id="previewFace">Face Style: soft</p>
-                        <p id="previewAccessory">Accessory: none</p>
-                    </div>
+                <div id="appsList" class="apps-list">
+                    <p>No restricted apps configured.</p>
                 </div>
             </div>
-        </div>
+        </section>
+    </main>
 
-        <!-- RESTRICTED APPS -->
-        <div id="restrictedAppsSection" class="section">
-            <div class="apps-page">
-                <div class="apps-card">
-                    <div class="apps-head">
-                        <h2>Restricted Apps</h2>
-                        <p>
-                            Apps can only be opened when no study session is active. If you doom scroll during active task windows,
-                            your individual CO₂ points and your task/group contribution will reduce.
-                        </p>
+    <div id="avatarModal" class="modal">
+        <div class="modal-content avatar-modal-content">
+            <div class="modal-head">
+                <h2>Your Avatar Room</h2>
+                <button id="closeModal" class="close-btn">&times;</button>
+            </div>
+
+            <div class="avatar-room-layout">
+                <div class="avatar-room-visual">
+                    <div id="room" class="mascot-room">
+                        <div id="decorPlant" class="room-decor decor-plant hidden"></div>
+                        <div id="decorLamp" class="room-decor decor-lamp hidden"></div>
+                        <div id="decorShelf" class="room-decor decor-shelf hidden"></div>
+
+                        <div id="mascotCharacter" class="mascot">
+                            <div id="mascotHeadband" class="mascot-headband hidden"></div>
+                            <div id="mascotClip" class="mascot-clip hidden"></div>
+                            <div id="mascotHair" class="mascot-hair"></div>
+
+                            <div id="mascotFace" class="mascot-face">
+                                <div id="mascotGlasses" class="mascot-glasses hidden">
+                                    <span></span>
+                                    <span></span>
+                                </div>
+
+                                <div class="mascot-eyes">
+                                    <span></span>
+                                    <span></span>
+                                </div>
+
+                                <div id="mascotMouth" class="mascot-mouth"></div>
+                            </div>
+
+                            <div id="mascotTorso" class="mascot-torso"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="avatar-room-info">
+                    <div class="info-card">
+                        <h3>Status</h3>
+                        <p id="pointsInfo">CO₂ Points: -</p>
+                        <p id="moodInfo">Mood: -</p>
+                        <p id="roomInfo">Room State: -</p>
+                        <p id="avatarTypeInfo">Avatar Style: -</p>
+                        <p id="consistencyInfo">Consistency Score: -</p>
                     </div>
 
-                    <div class="session-indicator" id="appsSessionIndicator">Checking session...</div>
-                    <div class="session-indicator" id="appsDoomIndicator">Total Doom Scroll: 00:00:00</div>
+                    <div class="info-card">
+                        <h3>Avatar Customization</h3>
+                        <p id="customAvatarInfo">Look: -</p>
+                    </div>
 
-                    <div id="appsList">Loading restricted apps...</div>
+                    <div class="info-card">
+                        <h3 id="roomUpgradeTitle">Basic Room</h3>
+                        <p id="roomUpgradeDescription">A simple starting room that can improve over time through consistency.</p>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- PROOF MODAL -->
     <div id="proofModal" class="modal hidden">
-        <div class="modal-content">
-            <h3>Submit Session Proof</h3>
+        <div class="modal-content proof-modal-content">
+            <div class="modal-head">
+                <h2>Submit Study Proof</h2>
+                <button class="close-btn" onclick="closeProofModal()">&times;</button>
+            </div>
+
             <input type="hidden" id="proofTaskId">
 
             <label for="completedWorkInput">What did you complete?</label>
-            <textarea id="completedWorkInput" rows="3"></textarea>
+            <textarea id="completedWorkInput" rows="4" placeholder="Describe the work you completed"></textarea>
 
             <label for="learnedSummaryInput">What did you learn?</label>
-            <textarea id="learnedSummaryInput" rows="3"></textarea>
+            <textarea id="learnedSummaryInput" rows="4" placeholder="Summarize what you learned"></textarea>
 
             <label for="confidenceInput">Confidence (1 to 10)</label>
-            <input type="number" id="confidenceInput" min="1" max="10">
+            <input type="number" id="confidenceInput" min="1" max="10" placeholder="Enter confidence score">
 
-            <div class="modal-buttons">
+            <div class="task-actions">
                 <button class="primary-btn" onclick="submitProof()">Submit Proof</button>
                 <button class="secondary-btn" onclick="closeProofModal()">Cancel</button>
             </div>
         </div>
     </div>
-
-    <!-- AVATAR MODAL -->
-    <div class="modal" id="avatarModal">
-        <div class="modal-content mascot-modal-content">
-            <span class="close-btn" id="closeModal">&times;</span>
-            <h2>Your Avatar Room</h2>
-
-            <div class="room-upgrade-banner">
-                <div class="room-upgrade-title" id="roomUpgradeTitle">Basic Room</div>
-                <div class="room-upgrade-description" id="roomUpgradeDescription">
-                    A simple starting room that can improve over time through consistency.
-                </div>
-            </div>
-
-            <div class="mascot-room" id="room">
-                <div class="room-glow"></div>
-
-                <div class="room-decor decor-plant hidden" id="decorPlant"></div>
-                <div class="room-decor decor-lamp hidden" id="decorLamp"></div>
-                <div class="room-decor decor-shelf hidden" id="decorShelf"></div>
-
-                <div class="mascot-wrap" id="mascotWrap">
-                    <div class="mascot-shadow"></div>
-
-                    <div class="mascot mascot-focused" id="mascotCharacter">
-                        <div class="mascot-head">
-                            <div class="mascot-hair" id="mascotHair"></div>
-                            <div class="mascot-accessory mascot-glasses hidden" id="mascotGlasses"></div>
-                            <div class="mascot-accessory mascot-headband hidden" id="mascotHeadband"></div>
-                            <div class="mascot-accessory mascot-clip hidden" id="mascotClip"></div>
-
-                            <div class="mascot-face" id="mascotFace">
-                                <div class="mascot-eyes">
-                                    <span class="eye left-eye"></span>
-                                    <span class="eye right-eye"></span>
-                                </div>
-                                <div class="mascot-mouth" id="mascotMouth"></div>
-                                <div class="mascot-cheeks">
-                                    <span class="cheek"></span>
-                                    <span class="cheek"></span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="mascot-body">
-                            <div class="mascot-neck"></div>
-                            <div class="mascot-torso" id="mascotTorso"></div>
-                            <div class="mascot-arms">
-                                <span class="arm left-arm"></span>
-                                <span class="arm right-arm"></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="avatar-stats">
-                <div class="info" id="pointsInfo"></div>
-                <div class="info" id="moodInfo"></div>
-                <div class="info" id="roomInfo"></div>
-                <div class="info" id="avatarTypeInfo"></div>
-                <div class="info" id="consistencyInfo"></div>
-                <div class="info" id="customAvatarInfo"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="toast" id="toast"></div>
 
     <script src="script.js"></script>
 </body>
