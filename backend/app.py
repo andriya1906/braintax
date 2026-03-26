@@ -10,9 +10,51 @@ CORS(app)
 # DEMO USERS
 # =========================================================
 users = [
-    {"id": 1, "name": "Andriya", "avatar_style": "focused", "co2_points": 120, "study_seconds": 0},
-    {"id": 2, "name": "Aisha", "avatar_style": "calm", "co2_points": 90, "study_seconds": 0},
-    {"id": 3, "name": "Rohan", "avatar_style": "energetic", "co2_points": 110, "study_seconds": 0},
+    {
+        "id": 1,
+        "name": "Andriya",
+        "avatar_style": "focused",
+        "co2_points": 120,
+        "study_seconds": 0,
+        "consistency_score": 4,
+        "avatar_profile": {
+            "hair_style": "short",
+            "skin_tone": "warm",
+            "outfit_color": "blue",
+            "face_style": "soft",
+            "accessory": "none"
+        }
+    },
+    {
+        "id": 2,
+        "name": "Aisha",
+        "avatar_style": "calm",
+        "co2_points": 90,
+        "study_seconds": 0,
+        "consistency_score": 3,
+        "avatar_profile": {
+            "hair_style": "bob",
+            "skin_tone": "light",
+            "outfit_color": "green",
+            "face_style": "round",
+            "accessory": "glasses"
+        }
+    },
+    {
+        "id": 3,
+        "name": "Rohan",
+        "avatar_style": "energetic",
+        "co2_points": 110,
+        "study_seconds": 0,
+        "consistency_score": 5,
+        "avatar_profile": {
+            "hair_style": "spiky",
+            "skin_tone": "deep",
+            "outfit_color": "orange",
+            "face_style": "sharp",
+            "accessory": "headband"
+        }
+    },
 ]
 
 current_user_id = 1
@@ -86,9 +128,30 @@ def find_user(user_id):
 def get_current_user():
     return find_user(current_user_id)
 
-def ensure_user_has_study_seconds(user):
-    if user and "study_seconds" not in user:
+def ensure_user_defaults(user):
+    if not user:
+        return
+
+    if "study_seconds" not in user:
         user["study_seconds"] = 0
+
+    if "consistency_score" not in user:
+        user["consistency_score"] = 0
+
+    if "avatar_profile" not in user:
+        user["avatar_profile"] = {}
+
+    defaults = {
+        "hair_style": "short",
+        "skin_tone": "warm",
+        "outfit_color": "blue",
+        "face_style": "soft",
+        "accessory": "none"
+    }
+
+    for key, value in defaults.items():
+        if key not in user["avatar_profile"]:
+            user["avatar_profile"][key] = value
 
 def find_group(group_id):
     return next((g for g in groups if g["id"] == group_id), None)
@@ -132,6 +195,47 @@ def get_room_state(points):
     elif points >= 30:
         return "normal"
     return "dim"
+
+def get_room_upgrade_level(consistency_score):
+    if consistency_score >= 8:
+        return "polished"
+    elif consistency_score >= 4:
+        return "improving"
+    return "basic"
+
+def get_room_upgrade_details(consistency_score):
+    level = get_room_upgrade_level(consistency_score)
+
+    if level == "polished":
+        return {
+            "level": "polished",
+            "title": "Polished Room",
+            "description": "Your room feels cleaner, more complete, and more encouraging because of consistent effort."
+        }
+    elif level == "improving":
+        return {
+            "level": "improving",
+            "title": "Improving Room",
+            "description": "Your room is getting more refined as your study habits become more consistent."
+        }
+
+    return {
+        "level": "basic",
+        "title": "Basic Room",
+        "description": "A simple starting room that can improve over time through consistency."
+    }
+
+def reward_consistency(user, amount):
+    ensure_user_defaults(user)
+    user["consistency_score"] += amount
+    if user["consistency_score"] < 0:
+        user["consistency_score"] = 0
+
+def penalize_consistency(user, amount):
+    ensure_user_defaults(user)
+    user["consistency_score"] -= amount
+    if user["consistency_score"] < 0:
+        user["consistency_score"] = 0
 
 def get_total_doom_scroll_seconds():
     total = 0
@@ -279,6 +383,7 @@ def apply_group_penalty_if_active_window(user_id, penalty_points):
 def close_open_apps_and_apply_penalty():
     user = get_current_user()
     total_penalty_points = 0
+    total_penalty_seconds = 0
 
     for app_item in restricted_apps:
         if app_item["is_open"] and app_item["opened_at"]:
@@ -294,10 +399,15 @@ def close_open_apps_and_apply_penalty():
             penalty_minutes = elapsed_seconds / 60.0
             penalty_points = doom_points_from_minutes(penalty_minutes)
             total_penalty_points += penalty_points
+            total_penalty_seconds += elapsed_seconds
 
     if total_penalty_points > 0 and user:
+        ensure_user_defaults(user)
         user["co2_points"] -= total_penalty_points
         apply_group_penalty_if_active_window(user["id"], total_penalty_points)
+
+        if total_penalty_seconds >= 300:
+            penalize_consistency(user, 1)
 
     return total_penalty_points
 
@@ -309,7 +419,7 @@ def get_current_user_route():
     user = get_current_user()
     if not user:
         return jsonify({"error": "Current user not found"}), 404
-    ensure_user_has_study_seconds(user)
+    ensure_user_defaults(user)
     return jsonify(user)
 
 @app.route("/set-current-user", methods=["POST"])
@@ -323,7 +433,7 @@ def set_current_user():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    ensure_user_has_study_seconds(user)
+    ensure_user_defaults(user)
     current_user_id = user_id
     return jsonify({"message": f"Current user set to {user['name']}", "user": user})
 
@@ -336,7 +446,7 @@ def focus_status():
     if not user:
         return jsonify({"error": "Current user not found"}), 404
 
-    ensure_user_has_study_seconds(user)
+    ensure_user_defaults(user)
     focus_state = get_user_focus_state(user["id"])
 
     live_seconds = 0
@@ -366,15 +476,21 @@ def avatar_data():
     if not user:
         return jsonify({"error": "Current user not found"}), 404
 
-    ensure_user_has_study_seconds(user)
+    ensure_user_defaults(user)
     focus_state = get_user_focus_state(user["id"])
+    room_upgrade = get_room_upgrade_details(user["consistency_score"])
 
     return jsonify({
         "name": user["name"],
         "co2_points": user["co2_points"],
         "mood": get_avatar_mood(user["co2_points"]),
         "room_state": get_room_state(user["co2_points"]),
+        "room_upgrade_level": room_upgrade["level"],
+        "room_upgrade_title": room_upgrade["title"],
+        "room_upgrade_description": room_upgrade["description"],
+        "consistency_score": user["consistency_score"],
         "avatar_type": user["avatar_style"],
+        "avatar_profile": user["avatar_profile"],
         "session_active": focus_state["active"],
         "session_type": focus_state["type"],
         "active_session_started_at": focus_state["started_at"],
@@ -388,11 +504,12 @@ def profile():
     if not user:
         return jsonify({"error": "Current user not found"}), 404
 
-    ensure_user_has_study_seconds(user)
+    ensure_user_defaults(user)
 
     return jsonify({
         "name": user["name"],
-        "avatar_type": user["avatar_style"]
+        "avatar_type": user["avatar_style"],
+        "avatar_profile": user["avatar_profile"]
     })
 
 @app.route("/update-profile", methods=["POST"])
@@ -401,18 +518,56 @@ def update_profile():
     if not user:
         return jsonify({"error": "Current user not found"}), 404
 
+    ensure_user_defaults(user)
+
     data = request.json
     name = data.get("name", "").strip()
     avatar_type = data.get("avatar_type", "").strip().lower()
 
+    avatar_profile = data.get("avatar_profile", {})
+    hair_style = str(avatar_profile.get("hair_style", user["avatar_profile"]["hair_style"])).strip().lower()
+    skin_tone = str(avatar_profile.get("skin_tone", user["avatar_profile"]["skin_tone"])).strip().lower()
+    outfit_color = str(avatar_profile.get("outfit_color", user["avatar_profile"]["outfit_color"])).strip().lower()
+    face_style = str(avatar_profile.get("face_style", user["avatar_profile"]["face_style"])).strip().lower()
+    accessory = str(avatar_profile.get("accessory", user["avatar_profile"]["accessory"])).strip().lower()
+
+    valid_avatar_types = ["calm", "energetic", "focused"]
+    valid_hair_styles = ["short", "bob", "spiky", "curly", "wavy"]
+    valid_skin_tones = ["light", "warm", "tan", "deep"]
+    valid_outfit_colors = ["blue", "green", "orange", "purple", "grey"]
+    valid_face_styles = ["soft", "round", "sharp"]
+    valid_accessories = ["none", "glasses", "headband", "clip"]
+
     if not name:
         return jsonify({"message": "Name cannot be empty"}), 400
 
-    if avatar_type not in ["calm", "energetic", "focused"]:
+    if avatar_type not in valid_avatar_types:
         return jsonify({"message": "Invalid avatar style"}), 400
+
+    if hair_style not in valid_hair_styles:
+        return jsonify({"message": "Invalid hair style"}), 400
+
+    if skin_tone not in valid_skin_tones:
+        return jsonify({"message": "Invalid skin tone"}), 400
+
+    if outfit_color not in valid_outfit_colors:
+        return jsonify({"message": "Invalid outfit color"}), 400
+
+    if face_style not in valid_face_styles:
+        return jsonify({"message": "Invalid face style"}), 400
+
+    if accessory not in valid_accessories:
+        return jsonify({"message": "Invalid accessory"}), 400
 
     user["name"] = name
     user["avatar_style"] = avatar_type
+    user["avatar_profile"] = {
+        "hair_style": hair_style,
+        "skin_tone": skin_tone,
+        "outfit_color": outfit_color,
+        "face_style": face_style,
+        "accessory": accessory
+    }
 
     for group in groups:
         for member in group["members"]:
@@ -430,6 +585,8 @@ def start_session():
     user = get_current_user()
     if not user:
         return jsonify({"message": "Current user not found"}), 404
+
+    ensure_user_defaults(user)
 
     focus_state = get_user_focus_state(user["id"])
     if focus_state["active"]:
@@ -449,7 +606,7 @@ def end_session():
     if not user:
         return jsonify({"message": "Current user not found"}), 404
 
-    ensure_user_has_study_seconds(user)
+    ensure_user_defaults(user)
 
     if not solo_session["active"] or not solo_session["started_at"] or solo_session["user_id"] != user["id"]:
         return jsonify({"message": "No solo session is active"}), 400
@@ -460,6 +617,9 @@ def end_session():
 
     user["co2_points"] += earned_points
     user["study_seconds"] += elapsed_seconds
+
+    if elapsed_seconds >= 900:
+        reward_consistency(user, 1)
 
     solo_session["active"] = False
     solo_session["started_at"] = None
@@ -534,7 +694,7 @@ def toggle_restricted_app():
     if not user:
         return jsonify({"message": "Current user not found"}), 404
 
-    ensure_user_has_study_seconds(user)
+    ensure_user_defaults(user)
 
     data = request.json
     app_id = data.get("app_id")
@@ -555,6 +715,9 @@ def toggle_restricted_app():
 
         user["co2_points"] -= penalty_points
         apply_group_penalty_if_active_window(user["id"], penalty_points)
+
+        if elapsed_seconds >= 300:
+            penalize_consistency(user, 1)
 
         return jsonify({
             "message": f"{app_item['name']} closed. Penalty applied.",
@@ -584,7 +747,7 @@ def toggle_restricted_app():
 @app.route("/users", methods=["GET"])
 def get_users():
     for user in users:
-        ensure_user_has_study_seconds(user)
+        ensure_user_defaults(user)
     return jsonify(users)
 
 @app.route("/users/<int:user_id>", methods=["GET"])
@@ -592,7 +755,7 @@ def get_user(user_id):
     user = find_user(user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
-    ensure_user_has_study_seconds(user)
+    ensure_user_defaults(user)
     return jsonify(user)
 
 # =========================================================
@@ -631,7 +794,7 @@ def create_group():
     if not leader:
         return jsonify({"error": "Leader user not found"}), 404
 
-    ensure_user_has_study_seconds(leader)
+    ensure_user_defaults(leader)
 
     new_group = {
         "id": group_id_counter,
@@ -668,7 +831,7 @@ def join_group():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    ensure_user_has_study_seconds(user)
+    ensure_user_defaults(user)
 
     group = next((g for g in groups if g["join_code"] == join_code), None)
     if not group:
@@ -954,6 +1117,7 @@ def start_group_session():
         close_open_apps_and_apply_penalty()
 
     user = find_user(user_id)
+    ensure_user_defaults(user)
     assignment = get_assignment(user_id, task_id)
 
     new_session = {
@@ -1030,6 +1194,7 @@ def start_group_session_internal(user_id, group_id, task_id):
         close_open_apps_and_apply_penalty()
 
     user = find_user(user_id)
+    ensure_user_defaults(user)
     assignment = get_assignment(user_id, task_id)
 
     new_session = {
@@ -1091,6 +1256,8 @@ def leave_group_session():
     if not task or not group or not user:
         return jsonify({"error": "Related task, group, or user not found"}), 404
 
+    ensure_user_defaults(user)
+
     elapsed_seconds = calculate_elapsed_seconds(session["start_time"])
     elapsed_minutes = elapsed_seconds / 60.0
     earned_points = study_points_from_minutes(elapsed_minutes)
@@ -1098,9 +1265,11 @@ def leave_group_session():
     session["status"] = "ended"
     session["end_time"] = now_str()
 
-    ensure_user_has_study_seconds(user)
     user["co2_points"] += earned_points
     user["study_seconds"] += elapsed_seconds
+
+    if elapsed_seconds >= 900:
+        reward_consistency(user, 1)
 
     group["total_points"] += earned_points
 
@@ -1121,64 +1290,7 @@ def leave_group_session():
 
 @app.route("/group-sessions/end", methods=["POST"])
 def end_group_session_compat():
-    data = request.json
-    user_id = data.get("user_id")
-    session_id = data.get("session_id")
-    task_id = data.get("task_id")
-
-    session = None
-
-    if session_id:
-        session = next(
-            (s for s in group_sessions if s["id"] == session_id and s["status"] == "active"),
-            None
-        )
-    elif task_id:
-        session = get_active_group_session_for_user_and_task(user_id, task_id)
-    else:
-        session = get_active_group_session_for_user(user_id)
-
-    if not session:
-        return jsonify({"error": "No active session found"}), 404
-
-    if session["user_id"] != user_id:
-        return jsonify({"error": "You can only end your own session"}), 403
-
-    task = find_task(session["task_id"])
-    group = find_group(session["group_id"])
-    user = find_user(user_id)
-    assignment = get_assignment(user_id, session["task_id"])
-
-    if not task or not group or not user:
-        return jsonify({"error": "Related task, group, or user not found"}), 404
-
-    elapsed_seconds = calculate_elapsed_seconds(session["start_time"])
-    elapsed_minutes = elapsed_seconds / 60.0
-    earned_points = study_points_from_minutes(elapsed_minutes)
-
-    session["status"] = "ended"
-    session["end_time"] = now_str()
-
-    ensure_user_has_study_seconds(user)
-    user["co2_points"] += earned_points
-    user["study_seconds"] += elapsed_seconds
-
-    group["total_points"] += earned_points
-
-    if assignment:
-        assignment["study_minutes"] += int(elapsed_minutes)
-        assignment["points_earned"] += earned_points
-        if task_window_status(task) == "Expired":
-            assignment["status"] = "Completed" if assignment["proof_submitted"] else "Pending Review"
-        else:
-            assignment["status"] = "In Progress"
-
-    return jsonify({
-        "message": "Study session ended",
-        "session": session,
-        "earned_points": earned_points,
-        "study_seconds_added": elapsed_seconds
-    })
+    return leave_group_session()
 
 @app.route("/groups/<int:group_id>/active-session", methods=["GET"])
 def get_group_active_session(group_id):
@@ -1250,15 +1362,14 @@ def submit_proof(task_id):
     if not active_session:
         assignment["status"] = "Completed"
 
+    user = find_user(user_id)
+    ensure_user_defaults(user)
+    reward_consistency(user, 1)
+
     return jsonify({
         "message": "Proof submitted successfully",
         "proof": proof
     })
-
-@app.route("/tasks/<int:task_id>/proofs", methods=["GET"])
-def get_task_proofs(task_id):
-    proofs = [p for p in session_proofs if p["task_id"] == task_id]
-    return jsonify(proofs)
 
 # =========================================================
 # LEADERBOARDS
@@ -1266,7 +1377,7 @@ def get_task_proofs(task_id):
 @app.route("/leaderboard", methods=["GET"])
 def leaderboard():
     for user in users:
-        ensure_user_has_study_seconds(user)
+        ensure_user_defaults(user)
     sorted_users = sorted(users, key=lambda x: x["co2_points"], reverse=True)
     return jsonify(sorted_users)
 

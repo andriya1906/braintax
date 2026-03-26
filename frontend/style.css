@@ -28,13 +28,21 @@
     --room-normal: linear-gradient(135deg, #E6EEE7, #D5E0D8);
     --room-dim: linear-gradient(135deg, #B7C1BB, #A6B0AA);
 
-    --mascot-skin: #F1D1B5;
-    --mascot-hair-focused: #2C352F;
-    --mascot-hair-calm: #5D7068;
-    --mascot-hair-energetic: #7C6245;
-    --mascot-shirt-focused: #6A7FB5;
-    --mascot-shirt-calm: #74A68C;
-    --mascot-shirt-energetic: #D49A5E;
+    --skin-light: #f2d9c8;
+    --skin-warm: #e7bf9f;
+    --skin-tan: #c99572;
+    --skin-deep: #7d553f;
+
+    --shirt-blue: #6f87c8;
+    --shirt-green: #79a88d;
+    --shirt-orange: #d29159;
+    --shirt-purple: #8f78b8;
+    --shirt-grey: #8f969c;
+
+    --hair-default: #2f3833;
+    --hair-calm: #63776f;
+    --hair-energetic: #8c6946;
+    --hair-focused: #2d3530;
 }
 
 body.dark-theme {
@@ -600,7 +608,7 @@ button:hover {
 
 .profile-page,
 .apps-page {
-    max-width: 900px;
+    max-width: 950px;
     margin: 0 auto;
 }
 
@@ -655,6 +663,13 @@ textarea:focus {
 .small-input {
     width: 120px;
     margin-bottom: 0;
+}
+
+.profile-custom-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 18px;
+    margin-bottom: 10px;
 }
 
 .profile-preview {
@@ -755,7 +770,7 @@ textarea:focus {
 }
 
 .mascot-modal-content {
-    max-width: 620px;
+    max-width: 660px;
 }
 
 .hidden {
@@ -771,6 +786,27 @@ textarea:focus {
     color: var(--muted);
 }
 
+/* Room progress banner */
+.room-upgrade-banner {
+    margin: 8px auto 16px;
+    max-width: 460px;
+    padding: 14px 16px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, var(--primary-soft), rgba(255,255,255,0));
+    border: 1px solid var(--border);
+}
+
+.room-upgrade-title {
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+
+.room-upgrade-description {
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+
 /* =========================
    MASCOT ROOM
 ========================= */
@@ -778,8 +814,8 @@ textarea:focus {
 .mascot-room {
     position: relative;
     margin: 22px auto;
-    width: min(100%, 360px);
-    height: 320px;
+    width: min(100%, 380px);
+    height: 330px;
     border-radius: 30px;
     border: 1px solid var(--border);
     overflow: hidden;
@@ -806,8 +842,8 @@ textarea:focus {
 .room-glow {
     position: absolute;
     top: 28px;
-    width: 160px;
-    height: 160px;
+    width: 170px;
+    height: 170px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.28);
     filter: blur(18px);
@@ -818,19 +854,109 @@ textarea:focus {
     opacity: 0.28;
 }
 
+/* Room decor */
+.room-decor {
+    position: absolute;
+    z-index: 1;
+}
+
+.decor-plant {
+    left: 18px;
+    bottom: 20px;
+    width: 40px;
+    height: 72px;
+    border-radius: 12px 12px 8px 8px;
+    background: linear-gradient(180deg, #7aa477 0 40%, #8c6747 40% 100%);
+}
+
+.decor-plant::before,
+.decor-plant::after {
+    content: "";
+    position: absolute;
+    background: #6c9a66;
+    border-radius: 50% 50% 0 50%;
+}
+
+.decor-plant::before {
+    width: 22px;
+    height: 28px;
+    left: 2px;
+    top: -16px;
+    transform: rotate(-24deg);
+}
+
+.decor-plant::after {
+    width: 24px;
+    height: 30px;
+    right: 2px;
+    top: -18px;
+    transform: rotate(28deg);
+}
+
+.decor-lamp {
+    right: 20px;
+    bottom: 28px;
+    width: 18px;
+    height: 90px;
+    background: #6e746f;
+    border-radius: 999px;
+}
+
+.decor-lamp::before {
+    content: "";
+    position: absolute;
+    top: -14px;
+    left: -14px;
+    width: 46px;
+    height: 24px;
+    border-radius: 24px 24px 8px 8px;
+    background: #d8c88a;
+}
+
+.decor-shelf {
+    top: 52px;
+    right: 24px;
+    width: 80px;
+    height: 10px;
+    background: #8a735b;
+    border-radius: 10px;
+}
+
+.decor-shelf::before,
+.decor-shelf::after {
+    content: "";
+    position: absolute;
+    bottom: 10px;
+    width: 16px;
+    border-radius: 4px 4px 0 0;
+}
+
+.decor-shelf::before {
+    left: 8px;
+    height: 26px;
+    background: #6e7fb3;
+}
+
+.decor-shelf::after {
+    left: 30px;
+    height: 20px;
+    background: #7da57f;
+}
+
 .mascot-wrap {
     position: relative;
-    width: 220px;
-    height: 250px;
+    width: 230px;
+    height: 255px;
     display: flex;
     align-items: flex-end;
     justify-content: center;
+    z-index: 2;
 }
 
 .mascot-shadow {
     position: absolute;
     bottom: 8px;
-    width: 120px;
+    width: 124px;
     height: 24px;
     border-radius: 50%;
     background: rgba(24, 33, 28, 0.18);
@@ -839,8 +965,8 @@ textarea:focus {
 
 .mascot {
     position: relative;
-    width: 150px;
-    height: 220px;
+    width: 152px;
+    height: 222px;
     transition: transform 0.22s ease;
 }
 
@@ -849,19 +975,20 @@ textarea:focus {
     top: 0;
     left: 50%;
     transform: translateX(-50%);
-    width: 92px;
-    height: 92px;
+    width: 96px;
+    height: 96px;
 }
 
 .mascot-hair {
     position: absolute;
     top: -2px;
     left: 8px;
-    width: 76px;
-    height: 38px;
+    width: 78px;
+    height: 40px;
     border-radius: 26px 26px 18px 18px;
-    background: var(--mascot-hair-focused);
-    z-index: 2;
+    background: var(--hair-default);
+    z-index: 3;
+    transition: all 0.2s ease;
 }
 
 .mascot-face {
@@ -869,12 +996,13 @@ textarea:focus {
     top: 16px;
     left: 50%;
     transform: translateX(-50%);
-    width: 82px;
-    height: 82px;
+    width: 84px;
+    height: 84px;
     border-radius: 50%;
-    background: var(--mascot-skin);
-    z-index: 1;
+    background: var(--skin-warm);
+    z-index: 2;
     box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.04);
+    transition: all 0.2s ease;
 }
 
 .mascot-eyes {
@@ -956,7 +1084,7 @@ textarea:focus {
     width: 16px;
     height: 20px;
     border-radius: 10px;
-    background: var(--mascot-skin);
+    background: inherit;
 }
 
 .mascot-torso {
@@ -967,8 +1095,9 @@ textarea:focus {
     width: 96px;
     height: 112px;
     border-radius: 30px 30px 22px 22px;
-    background: var(--mascot-shirt-focused);
+    background: var(--shirt-blue);
     box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.08);
+    transition: all 0.2s ease;
 }
 
 .mascot-arms {
@@ -984,7 +1113,7 @@ textarea:focus {
     width: 18px;
     height: 72px;
     border-radius: 999px;
-    background: var(--mascot-skin);
+    background: var(--skin-warm);
 }
 
 .left-arm {
@@ -997,32 +1126,20 @@ textarea:focus {
     transform: rotate(-18deg);
 }
 
-/* Avatar type variations */
+/* Avatar personality styles */
 .mascot-calm .mascot-hair {
-    background: var(--mascot-hair-calm);
-}
-
-.mascot-calm .mascot-torso {
-    background: var(--mascot-shirt-calm);
+    background: var(--hair-calm);
 }
 
 .mascot-energetic .mascot-hair {
-    background: var(--mascot-hair-energetic);
-}
-
-.mascot-energetic .mascot-torso {
-    background: var(--mascot-shirt-energetic);
+    background: var(--hair-energetic);
 }
 
 .mascot-focused .mascot-hair {
-    background: var(--mascot-hair-focused);
+    background: var(--hair-focused);
 }
 
-.mascot-focused .mascot-torso {
-    background: var(--mascot-shirt-focused);
-}
-
-/* Mood variations */
+/* Mood */
 .mascot.mood-happy {
     transform: translateY(-4px) scale(1.01);
 }
@@ -1049,6 +1166,141 @@ textarea:focus {
 
 .mascot.mood-sad .right-arm {
     transform: rotate(-30deg);
+}
+
+/* Hair styles */
+.hair-short {
+    height: 36px;
+    border-radius: 24px 24px 18px 18px;
+}
+
+.hair-bob {
+    height: 48px;
+    border-radius: 28px 28px 24px 24px;
+}
+
+.hair-spiky {
+    height: 40px;
+    clip-path: polygon(0% 100%, 8% 40%, 18% 82%, 30% 22%, 42% 80%, 56% 18%, 68% 74%, 80% 28%, 92% 76%, 100% 100%);
+    border-radius: 0;
+}
+
+.hair-curly {
+    height: 46px;
+    border-radius: 30px;
+    box-shadow:
+        -10px 8px 0 0 currentColor,
+        10px 8px 0 0 currentColor;
+    color: inherit;
+}
+
+.hair-wavy {
+    height: 44px;
+    border-radius: 24px 30px 18px 24px;
+}
+
+/* Skin tones */
+.skin-light {
+    background: var(--skin-light);
+}
+
+.skin-warm {
+    background: var(--skin-warm);
+}
+
+.skin-tan {
+    background: var(--skin-tan);
+}
+
+.skin-deep {
+    background: var(--skin-deep);
+}
+
+/* Outfit colors */
+.outfit-blue {
+    background: var(--shirt-blue);
+}
+
+.outfit-green {
+    background: var(--shirt-green);
+}
+
+.outfit-orange {
+    background: var(--shirt-orange);
+}
+
+.outfit-purple {
+    background: var(--shirt-purple);
+}
+
+.outfit-grey {
+    background: var(--shirt-grey);
+}
+
+/* Face styles */
+.face-soft {
+    border-radius: 50%;
+}
+
+.face-round {
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+}
+
+.face-sharp {
+    border-radius: 44% 44% 50% 50% / 40% 40% 58% 58%;
+}
+
+/* Accessories */
+.mascot-accessory {
+    position: absolute;
+    z-index: 4;
+}
+
+.mascot-glasses {
+    left: 20px;
+    top: 44px;
+    width: 56px;
+    height: 18px;
+    border-top: 3px solid #3b4340;
+}
+
+.mascot-glasses::before,
+.mascot-glasses::after {
+    content: "";
+    position: absolute;
+    top: -6px;
+    width: 18px;
+    height: 14px;
+    border: 3px solid #3b4340;
+    border-radius: 8px;
+}
+
+.mascot-glasses::before {
+    left: 0;
+}
+
+.mascot-glasses::after {
+    right: 0;
+}
+
+.mascot-headband {
+    top: 10px;
+    left: 14px;
+    width: 66px;
+    height: 12px;
+    border-radius: 999px;
+    background: #e29a84;
+}
+
+.mascot-clip {
+    top: 18px;
+    right: 10px;
+    width: 14px;
+    height: 20px;
+    border-radius: 8px;
+    background: #d8c88a;
 }
 
 .avatar-stats {
@@ -1123,6 +1375,12 @@ textarea:focus {
     }
 }
 
+@media (max-width: 760px) {
+    .profile-custom-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 @media (max-width: 700px) {
     body {
         padding: 16px;
@@ -1185,11 +1443,11 @@ textarea:focus {
     }
 
     .mascot-room {
-        height: 290px;
+        height: 300px;
     }
 
     .mascot-wrap {
-        transform: scale(0.92);
+        transform: scale(0.9);
     }
 
     .timer {

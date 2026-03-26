@@ -72,19 +72,17 @@ function formatTime(totalSeconds) {
     return `${hh}:${mm}:${ss}`;
 }
 
-function formatStudySummary(totalSeconds) {
-    const value = Math.max(0, parseInt(totalSeconds || 0));
-    const hours = Math.floor(value / 3600);
-    const minutes = Math.floor((value % 3600) / 60);
-    const seconds = value % 60;
-
-    return `${hours}h ${minutes}m ${seconds}s`;
-}
-
 function formatDateTime(value) {
     if (!value) return "-";
     const date = new Date(value);
     return date.toLocaleString();
+}
+
+function capitalizeWords(text) {
+    return String(text || "")
+        .split(" ")
+        .map(word => word ? word.charAt(0).toUpperCase() + word.slice(1) : "")
+        .join(" ");
 }
 
 function escapeHtml(text) {
@@ -207,9 +205,9 @@ function loadFocusStatus() {
 
                 if (sessionStatus) {
                     if (data.type === "group") {
-                        sessionStatus.innerText = `You are currently in an active group task session. You can leave and rejoin anytime within the task window.`;
+                        sessionStatus.innerText = "You are currently in an active group task session. You can leave and rejoin anytime within the task window.";
                     } else {
-                        sessionStatus.innerText = `You are currently in an active solo session.`;
+                        sessionStatus.innerText = "You are currently in an active solo session.";
                     }
                 }
 
@@ -253,18 +251,49 @@ function updatePrimarySessionButtons() {
    AVATAR / PROFILE
 ========================= */
 
-function applyMascotState() {
+function resetAccessoryClasses() {
+    const glasses = document.getElementById("mascotGlasses");
+    const headband = document.getElementById("mascotHeadband");
+    const clip = document.getElementById("mascotClip");
+
+    if (glasses) glasses.classList.add("hidden");
+    if (headband) headband.classList.add("hidden");
+    if (clip) clip.classList.add("hidden");
+}
+
+function resetRoomDecor() {
+    const decorPlant = document.getElementById("decorPlant");
+    const decorLamp = document.getElementById("decorLamp");
+    const decorShelf = document.getElementById("decorShelf");
+
+    if (decorPlant) decorPlant.className = "room-decor decor-plant hidden";
+    if (decorLamp) decorLamp.className = "room-decor decor-lamp hidden";
+    if (decorShelf) decorShelf.className = "room-decor decor-shelf hidden";
+}
+
+function applyMascotCustomization() {
     if (!avatarData) return;
 
     const room = document.getElementById("room");
     const mascotCharacter = document.getElementById("mascotCharacter");
     const mascotMouth = document.getElementById("mascotMouth");
+    const mascotHair = document.getElementById("mascotHair");
+    const mascotFace = document.getElementById("mascotFace");
+    const mascotTorso = document.getElementById("mascotTorso");
 
-    if (!room || !mascotCharacter || !mascotMouth) return;
+    if (!room || !mascotCharacter || !mascotMouth || !mascotHair || !mascotFace || !mascotTorso) return;
+
+    const profile = avatarData.avatar_profile || {};
 
     room.className = "mascot-room";
     mascotCharacter.className = "mascot";
     mascotMouth.className = "mascot-mouth";
+    mascotHair.className = "mascot-hair";
+    mascotFace.className = "mascot-face";
+    mascotTorso.className = "mascot-torso";
+
+    resetAccessoryClasses();
+    resetRoomDecor();
 
     if (avatarData.room_state === "bright") room.classList.add("bright");
     if (avatarData.room_state === "normal") room.classList.add("normal");
@@ -281,6 +310,41 @@ function applyMascotState() {
     if (avatarData.mood === "happy") mascotMouth.classList.add("mouth-happy");
     if (avatarData.mood === "neutral") mascotMouth.classList.add("mouth-neutral");
     if (avatarData.mood === "sad") mascotMouth.classList.add("mouth-sad");
+
+    if (profile.hair_style) mascotHair.classList.add(`hair-${profile.hair_style}`);
+    if (profile.skin_tone) mascotFace.classList.add(`skin-${profile.skin_tone}`);
+    if (profile.outfit_color) mascotTorso.classList.add(`outfit-${profile.outfit_color}`);
+    if (profile.face_style) mascotFace.classList.add(`face-${profile.face_style}`);
+
+    if (profile.accessory === "glasses") {
+        const glasses = document.getElementById("mascotGlasses");
+        if (glasses) glasses.classList.remove("hidden");
+    }
+
+    if (profile.accessory === "headband") {
+        const headband = document.getElementById("mascotHeadband");
+        if (headband) headband.classList.remove("hidden");
+    }
+
+    if (profile.accessory === "clip") {
+        const clip = document.getElementById("mascotClip");
+        if (clip) clip.classList.remove("hidden");
+    }
+
+    if (avatarData.room_upgrade_level === "improving") {
+        const decorPlant = document.getElementById("decorPlant");
+        if (decorPlant) decorPlant.classList.remove("hidden");
+    }
+
+    if (avatarData.room_upgrade_level === "polished") {
+        const decorPlant = document.getElementById("decorPlant");
+        const decorLamp = document.getElementById("decorLamp");
+        const decorShelf = document.getElementById("decorShelf");
+
+        if (decorPlant) decorPlant.classList.remove("hidden");
+        if (decorLamp) decorLamp.classList.remove("hidden");
+        if (decorShelf) decorShelf.classList.remove("hidden");
+    }
 }
 
 function loadAvatarData() {
@@ -293,16 +357,11 @@ function loadAvatarData() {
             const heroPointsPill = document.getElementById("heroPointsPill");
             const heroMoodPill = document.getElementById("heroMoodPill");
             const heroDoomPill = document.getElementById("heroDoomPill");
-            const previewName = document.getElementById("previewName");
-            const previewAvatar = document.getElementById("previewAvatar");
 
             if (heroNamePill) heroNamePill.innerText = "Name: " + data.name;
             if (heroPointsPill) heroPointsPill.innerText = "CO₂ Points: " + data.co2_points;
             if (heroMoodPill) heroMoodPill.innerText = "Mood: " + data.mood;
             if (heroDoomPill) heroDoomPill.innerText = "Doom Scroll: " + formatTime(data.doom_scroll_total_seconds || 0);
-
-            if (previewName) previewName.innerText = "Name: " + data.name;
-            if (previewAvatar) previewAvatar.innerText = "Avatar Style: " + data.avatar_type;
         })
         .catch(error => {
             console.log(error);
@@ -313,11 +372,39 @@ function loadProfile() {
     fetch(`${API_BASE}/profile`)
         .then(response => response.json())
         .then(data => {
+            const profile = data.avatar_profile || {};
+
             const profileName = document.getElementById("profileName");
             const avatarType = document.getElementById("avatarType");
+            const hairStyle = document.getElementById("hairStyle");
+            const skinTone = document.getElementById("skinTone");
+            const outfitColor = document.getElementById("outfitColor");
+            const faceStyle = document.getElementById("faceStyle");
+            const accessory = document.getElementById("accessory");
+
+            const previewName = document.getElementById("previewName");
+            const previewAvatar = document.getElementById("previewAvatar");
+            const previewHair = document.getElementById("previewHair");
+            const previewSkin = document.getElementById("previewSkin");
+            const previewOutfit = document.getElementById("previewOutfit");
+            const previewFace = document.getElementById("previewFace");
+            const previewAccessory = document.getElementById("previewAccessory");
 
             if (profileName) profileName.value = data.name;
             if (avatarType) avatarType.value = data.avatar_type;
+            if (hairStyle) hairStyle.value = profile.hair_style || "short";
+            if (skinTone) skinTone.value = profile.skin_tone || "warm";
+            if (outfitColor) outfitColor.value = profile.outfit_color || "blue";
+            if (faceStyle) faceStyle.value = profile.face_style || "soft";
+            if (accessory) accessory.value = profile.accessory || "none";
+
+            if (previewName) previewName.innerText = "Name: " + data.name;
+            if (previewAvatar) previewAvatar.innerText = "Avatar Style: " + (data.avatar_type || "calm");
+            if (previewHair) previewHair.innerText = "Hair Style: " + capitalizeWords(profile.hair_style || "short");
+            if (previewSkin) previewSkin.innerText = "Skin Tone: " + capitalizeWords(profile.skin_tone || "warm");
+            if (previewOutfit) previewOutfit.innerText = "Outfit Color: " + capitalizeWords(profile.outfit_color || "blue");
+            if (previewFace) previewFace.innerText = "Face Style: " + capitalizeWords(profile.face_style || "soft");
+            if (previewAccessory) previewAccessory.innerText = "Accessory: " + capitalizeWords(profile.accessory || "none");
         })
         .catch(error => {
             console.log(error);
@@ -327,6 +414,11 @@ function loadProfile() {
 function saveProfile() {
     const name = document.getElementById("profileName")?.value || "";
     const avatarType = document.getElementById("avatarType")?.value || "";
+    const hairStyle = document.getElementById("hairStyle")?.value || "short";
+    const skinTone = document.getElementById("skinTone")?.value || "warm";
+    const outfitColor = document.getElementById("outfitColor")?.value || "blue";
+    const faceStyle = document.getElementById("faceStyle")?.value || "soft";
+    const accessory = document.getElementById("accessory")?.value || "none";
 
     fetch(`${API_BASE}/update-profile`, {
         method: "POST",
@@ -335,7 +427,14 @@ function saveProfile() {
         },
         body: JSON.stringify({
             name: name,
-            avatar_type: avatarType
+            avatar_type: avatarType,
+            avatar_profile: {
+                hair_style: hairStyle,
+                skin_tone: skinTone,
+                outfit_color: outfitColor,
+                face_style: faceStyle,
+                accessory: accessory
+            }
         })
     })
     .then(async response => {
@@ -346,7 +445,7 @@ function saveProfile() {
         if (profileMessage) profileMessage.innerText = data.message;
 
         showToast(data.message, "success");
-        refreshAll();
+        await refreshAll();
 
         if (selectedGroupId) {
             openGroup(selectedGroupId);
@@ -618,7 +717,7 @@ function toggleRestrictedApp(appId) {
 
         showToast(data.message, data.penalty_points && data.penalty_points > 0 ? "warning" : "success");
 
-        refreshAll();
+        await refreshAll();
         if (selectedGroupId) openGroup(selectedGroupId);
         showSection("restrictedApps");
     })
@@ -964,7 +1063,9 @@ function leaveGroup(groupId) {
             selectedGroupData = null;
 
             const groupDetails = document.getElementById("groupDetails");
-            if (groupDetails) groupDetails.innerHTML = "Select a group to view chat, tasks, active sessions, and leaderboard.";
+            if (groupDetails) {
+                groupDetails.innerHTML = "Select a group to view chat, tasks, active sessions, and leaderboard.";
+            }
         }
 
         loadMyGroups();
@@ -1228,6 +1329,7 @@ function submitProof() {
         closeProofModal();
         loadAssignedTasks();
         if (selectedGroupId) openGroup(selectedGroupId);
+        refreshAll();
     })
     .catch(error => {
         console.log(error);
@@ -1387,6 +1489,7 @@ document.addEventListener("DOMContentLoaded", function() {
     if (startBtn) startBtn.addEventListener("click", startSession);
     if (endBtn) endBtn.addEventListener("click", endSession);
     if (saveProfileBtn) saveProfileBtn.addEventListener("click", saveProfile);
+
     if (refreshBtn) {
         refreshBtn.addEventListener("click", function() {
             refreshAll();
@@ -1398,17 +1501,31 @@ document.addEventListener("DOMContentLoaded", function() {
         co2Button.addEventListener("click", function() {
             if (!avatarData) return;
 
+            const profile = avatarData.avatar_profile || {};
+
             const pointsInfo = document.getElementById("pointsInfo");
             const moodInfo = document.getElementById("moodInfo");
             const roomInfo = document.getElementById("roomInfo");
             const avatarTypeInfo = document.getElementById("avatarTypeInfo");
+            const consistencyInfo = document.getElementById("consistencyInfo");
+            const customAvatarInfo = document.getElementById("customAvatarInfo");
+            const roomUpgradeTitle = document.getElementById("roomUpgradeTitle");
+            const roomUpgradeDescription = document.getElementById("roomUpgradeDescription");
 
             if (pointsInfo) pointsInfo.innerText = "CO₂ Points: " + avatarData.co2_points;
             if (moodInfo) moodInfo.innerText = "Mood: " + avatarData.mood;
             if (roomInfo) roomInfo.innerText = "Room State: " + avatarData.room_state;
             if (avatarTypeInfo) avatarTypeInfo.innerText = "Avatar Style: " + avatarData.avatar_type;
+            if (consistencyInfo) consistencyInfo.innerText = "Consistency Score: " + (avatarData.consistency_score || 0);
+            if (customAvatarInfo) {
+                customAvatarInfo.innerText =
+                    `Look: ${capitalizeWords(profile.hair_style || "short")} hair • ${capitalizeWords(profile.skin_tone || "warm")} skin • ${capitalizeWords(profile.outfit_color || "blue")} outfit • ${capitalizeWords(profile.face_style || "soft")} face • ${capitalizeWords(profile.accessory || "none")} accessory`;
+            }
 
-            applyMascotState();
+            if (roomUpgradeTitle) roomUpgradeTitle.innerText = avatarData.room_upgrade_title || "Basic Room";
+            if (roomUpgradeDescription) roomUpgradeDescription.innerText = avatarData.room_upgrade_description || "";
+
+            applyMascotCustomization();
             avatarModal.style.display = "flex";
         });
     }
